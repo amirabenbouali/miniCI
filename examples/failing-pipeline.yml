@@ -1,0 +1,8 @@
+name: Failing Example
+steps:
+  - name: Successful step
+    run: echo "Step one passed"
+  - name: Failing step
+    run: bash -c 'echo "Test failure"; exit 1'
+  - name: Skipped step
+    run: echo "This should not run"
