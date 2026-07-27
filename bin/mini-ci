@@ -1,15 +1,7 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
+require "bundler/setup"
 require_relative "../lib/mini_ci"
 
-begin
-  config_path = ARGV.fetch(0, MiniCi::ConfigLoader::DEFAULT_CONFIG_FILE)
-  config = MiniCi::ConfigLoader.new(path: config_path).load
-  result = MiniCi::Pipeline.new(name: config.name, steps: config.steps).run
-
-  exit(result.success? ? 0 : 1)
-rescue MiniCi::Error => e
-  warn "Mini CI error: #{e.message}"
-  exit(1)
-end
+exit MiniCi::CLI.new(arguments: ARGV).call

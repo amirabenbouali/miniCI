@@ -4,10 +4,11 @@ Mini CI is a lightweight local CI/CD pipeline runner written primarily in Ruby. 
 
 ## Current Milestone
 
-Mini CI v0.3 supports:
+Mini CI v0.4 supports:
 
 - loading pipeline steps from `pipeline.yml`;
 - loading a custom pipeline configuration path;
+- a structured CLI with `run`, `validate`, `list`, `version`, and `help` commands;
 - validating pipeline configuration with clear error messages;
 - running shell commands sequentially;
 - recording each executed step result;
@@ -45,6 +46,36 @@ You can also run the default Rake task:
 bundle exec rake
 ```
 
+## CLI Usage
+
+Mini CI uses subcommands:
+
+```bash
+bundle exec bin/mini-ci help
+bundle exec bin/mini-ci version
+bundle exec bin/mini-ci validate
+bundle exec bin/mini-ci list
+bundle exec bin/mini-ci run
+```
+
+Running without a command displays help and exits successfully:
+
+```bash
+bundle exec bin/mini-ci
+```
+
+### Command Reference
+
+| Command | Description | Example |
+| --- | --- | --- |
+| `run [FILE]` | Execute a pipeline | `bundle exec bin/mini-ci run` |
+| `validate [FILE]` | Validate a pipeline configuration without running commands | `bundle exec bin/mini-ci validate` |
+| `list [FILE]` | Display configured pipeline steps without running commands | `bundle exec bin/mini-ci list` |
+| `version` | Display the installed version | `bundle exec bin/mini-ci version` |
+| `help` | Display usage information | `bundle exec bin/mini-ci help` |
+
+`FILE` defaults to `pipeline.yml`.
+
 ## Pipeline Configuration
 
 Mini CI looks for `pipeline.yml` in the current working directory by default.
@@ -72,7 +103,9 @@ steps:
 You can pass an optional file path to load a different configuration:
 
 ```bash
-bundle exec bin/mini-ci custom-pipeline.yml
+bundle exec bin/mini-ci run custom-pipeline.yml
+bundle exec bin/mini-ci validate custom-pipeline.yml
+bundle exec bin/mini-ci list custom-pipeline.yml
 ```
 
 The path is resolved relative to the current working directory.
@@ -121,12 +154,59 @@ set -euo pipefail
 echo "Example check completed"
 ```
 
-## Running The Example Pipeline
+## Validate A Pipeline
+
+Validate the default configuration without running any commands:
+
+```bash
+bundle exec bin/mini-ci validate
+```
+
+Example output:
+
+```text
+Pipeline configuration is valid.
+
+Name: Mini CI Example
+Steps: 3
+File: pipeline.yml
+```
+
+Validate a custom file:
+
+```bash
+bundle exec bin/mini-ci validate examples/failing-pipeline.yml
+```
+
+## List Pipeline Steps
+
+List the default pipeline steps without running them:
+
+```bash
+bundle exec bin/mini-ci list
+```
+
+Example output:
+
+```text
+Mini CI Example
+
+1. Check Ruby version
+   ruby --version
+
+2. Print message
+   echo "Running checks"
+
+3. Run Bash script
+   bash scripts/example_check.sh
+```
+
+## Run The Example Pipeline
 
 Run the example pipeline from the project root:
 
 ```bash
-bundle exec bin/mini-ci
+bundle exec bin/mini-ci run
 ```
 
 When all steps pass, Mini CI prints output similar to:
@@ -166,7 +246,7 @@ A successful pipeline exits with status `0`.
 A second example demonstrates failure and skipped steps:
 
 ```bash
-bundle exec bin/mini-ci examples/failing-pipeline.yml
+bundle exec bin/mini-ci run examples/failing-pipeline.yml
 ```
 
 Expected output is similar to:
@@ -198,6 +278,28 @@ echo $?
 
 This pipeline exits with a non-zero status because one step failed.
 
+## Version And Help
+
+Show the installed version:
+
+```bash
+bundle exec bin/mini-ci version
+```
+
+Example output:
+
+```text
+Mini CI 0.4.0
+```
+
+Show help:
+
+```bash
+bundle exec bin/mini-ci help
+bundle exec bin/mini-ci --help
+bundle exec bin/mini-ci -h
+```
+
 ## Step Durations
 
 Mini CI measures elapsed time with Ruby's monotonic clock:
@@ -222,8 +324,9 @@ When all configured steps run, the summary reports the configured count as `tota
 
 Mini CI uses process exit codes to report pipeline success or failure:
 
-- exit code `0` — all configured steps completed successfully;
-- non-zero exit code — a step failed or the configuration could not be loaded.
+- exit code `0` — the command completed successfully;
+- exit code `1` — pipeline execution failed;
+- exit code `2` — configuration or CLI usage error.
 
 Configuration errors are printed to standard error:
 
@@ -231,13 +334,20 @@ Configuration errors are printed to standard error:
 Mini CI error: pipeline.yml was not found
 ```
 
+Unknown commands are also printed to standard error:
+
+```text
+Mini CI error: unknown command "deploy"
+
+Run `mini-ci help` for usage information.
+```
+
 ## Current Limitations
 
 - Steps run one at a time.
 - A pipeline stops at the first failed command.
-- No CLI subcommands yet for `run`, `validate`, or `list`.
 - No environment variable management, retries, parallel execution, timeouts, Docker, deployment, frontend, or database support.
 
 ## Next Milestone
 
-The next planned milestone adds CLI subcommands for `run`, `validate`, and `list`.
+The next planned milestone adds global and step-specific environment variables.

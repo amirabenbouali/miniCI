@@ -6,4 +6,6 @@ module MiniCi
   class ConfigurationError < Error; end
 
   class FileNotFoundError < Error; end
+
+  class UsageError < Error; end
 end
