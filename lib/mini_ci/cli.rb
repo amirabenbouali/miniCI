@@ -82,7 +82,9 @@ module MiniCi
       config = load_config(config_path)
       result = Pipeline.new(
         name: config.name,
+        before_all: config.before_all,
         steps: config.steps,
+        after_all: config.after_all,
         env: config.env,
         reporter: Reporter.new(output: @output)
       ).run
@@ -97,7 +99,9 @@ module MiniCi
       @output.puts "Pipeline configuration is valid."
       @output.puts
       @output.puts "Name: #{config.name}"
+      @output.puts "Before-all hooks: #{config.before_all.length}"
       @output.puts "Steps: #{config.steps.length}"
+      @output.puts "After-all hooks: #{config.after_all.length}"
       @output.puts "Environment variables: #{config.env.length}"
       @output.puts "File: #{config_path}"
 
@@ -113,15 +117,26 @@ module MiniCi
 
       print_global_environment(config.env)
 
-      config.steps.each_with_index do |step, index|
-        @output.puts "#{index + 1}. #{step.name}"
-        @output.puts "   #{step.command}"
-        @output.puts "   Timeout: #{format_timeout(step.timeout)}" if step.timeout
+      print_phase("Before all", config.before_all)
+      print_phase("Steps", config.steps)
+      print_phase("After all", config.after_all)
+
+      SUCCESS
+    end
+
+    def print_phase(heading, steps)
+      return if steps.empty?
+
+      @output.puts "#{heading}:"
+      steps.each_with_index do |step, index|
+        @output.puts "  #{index + 1}. #{step.name}"
+        @output.puts "     #{step.command}"
+        @output.puts "     Timeout: #{format_timeout(step.timeout)}" if step.timeout
+        @output.puts "     Retries: #{step.retries}" if step.retries.positive?
+        @output.puts "     Retry delay: #{format_duration(step.retry_delay)}" if step.retries.positive? && step.retry_delay.positive?
         print_step_environment(step.env)
         @output.puts
       end
-
-      SUCCESS
     end
 
     def version(arguments)
@@ -162,9 +177,9 @@ module MiniCi
     def print_step_environment(env)
       return if env.empty?
 
-      @output.puts "   Environment:"
+      @output.puts "     Environment:"
       env.each do |name, value|
-        @output.puts "     #{name}=#{value}"
+        @output.puts "       #{name}=#{value}"
       end
     end
 
@@ -174,6 +189,10 @@ module MiniCi
       else
         "#{timeout}s"
       end
+    end
+
+    def format_duration(seconds)
+      format("%.2fs", seconds)
     end
 
     def usage_error(message)

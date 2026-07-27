@@ -23,6 +23,38 @@ RSpec.describe MiniCi::Step do
     expect(step.timeout).to be_nil
   end
 
+  it "defaults retry values" do
+    step = described_class.new(name: "Example", command: "echo hi")
+
+    expect(step.retries).to eq(0)
+    expect(step.retry_delay).to eq(0)
+  end
+
+  it "stores retry values" do
+    step = described_class.new(name: "Example", command: "echo hi", retries: 2, retry_delay: 1.5)
+
+    expect(step.retries).to eq(2)
+    expect(step.retry_delay).to eq(1.5)
+  end
+
+  it "calculates maximum attempts" do
+    step = described_class.new(name: "Example", command: "echo hi", retries: 2)
+
+    expect(step.maximum_attempts).to eq(3)
+  end
+
+  it "rejects invalid retries" do
+    expect do
+      described_class.new(name: "Example", command: "echo hi", retries: -1)
+    end.to raise_error(ArgumentError, "Step retries must be a non-negative integer")
+  end
+
+  it "rejects invalid retry delays" do
+    expect do
+      described_class.new(name: "Example", command: "echo hi", retry_delay: -1)
+    end.to raise_error(ArgumentError, "Step retry_delay must be a non-negative number")
+  end
+
   it "stores a valid timeout" do
     step = described_class.new(name: "Example", command: "echo hi", timeout: 2.5)
 

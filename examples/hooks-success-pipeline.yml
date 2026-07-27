@@ -1,0 +1,16 @@
+name: Hooks Success Example
+
+before_all:
+  - name: Prepare workspace
+    run: bash scripts/prepare_workspace.sh
+
+steps:
+  - name: Check marker exists
+    run: test -f tmp/mini_ci_hooks/marker.txt
+
+  - name: Print message
+    run: echo "Main steps completed"
+
+after_all:
+  - name: Clean workspace
+    run: bash scripts/cleanup_workspace.sh

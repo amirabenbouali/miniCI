@@ -103,7 +103,9 @@ RSpec.describe MiniCi::CLI do
       expect(exit_code).to eq(0)
       expect(stdout).to include("Pipeline configuration is valid.")
       expect(stdout).to include("Name: Environment Example")
+      expect(stdout).to include("Before-all hooks: 0")
       expect(stdout).to include("Steps: 2")
+      expect(stdout).to include("After-all hooks: 0")
       expect(stdout).to include("Environment variables: 3")
       expect(stdout).to include("File: pipeline.yml")
       expect(stderr).to be_empty
@@ -151,6 +153,41 @@ RSpec.describe MiniCi::CLI do
         steps:
           - name: Create marker
             run: ruby -e 'File.write("#{marker}", "created")'
+      YAML
+
+      exit_code, = run_cli(["validate", path])
+
+      expect(exit_code).to eq(0)
+      expect(File.exist?(marker)).to be(false)
+    ensure
+      FileUtils.remove_entry(directory) if directory
+    end
+
+    it "displays hook counts" do
+      exit_code, stdout, stderr = run_cli(["validate", "examples/hooks-success-pipeline.yml"])
+
+      expect(exit_code).to eq(0)
+      expect(stdout).to include("Before-all hooks: 1")
+      expect(stdout).to include("Steps: 2")
+      expect(stdout).to include("After-all hooks: 1")
+      expect(stderr).to be_empty
+    end
+
+    it "does not execute hooks" do
+      directory = Dir.mktmpdir
+      marker = File.join(directory, "hook-marker.txt")
+      path = File.join(directory, "pipeline.yml")
+      File.write(path, <<~YAML)
+        name: Validate Hooks Only
+        before_all:
+          - name: Create setup marker
+            run: ruby -e 'File.write("#{marker}", "setup")'
+        steps:
+          - name: Step
+            run: echo step
+        after_all:
+          - name: Create cleanup marker
+            run: ruby -e 'File.write("#{marker}", "cleanup")'
       YAML
 
       exit_code, = run_cli(["validate", path])
@@ -238,6 +275,43 @@ RSpec.describe MiniCi::CLI do
     ensure
       FileUtils.remove_entry(directory) if directory
     end
+
+    it "accepts valid retry fields" do
+      path, directory = write_temp_config(<<~YAML)
+        name: Retry Validate
+        steps:
+          - name: Flaky
+            run: echo hi
+            retries: 2
+            retry_delay: 0.5
+      YAML
+
+      exit_code, stdout, stderr = run_cli(["validate", path])
+
+      expect(exit_code).to eq(0)
+      expect(stdout).to include("Pipeline configuration is valid.")
+      expect(stderr).to be_empty
+    ensure
+      FileUtils.remove_entry(directory) if directory
+    end
+
+    it "rejects invalid retry fields" do
+      path, directory = write_temp_config(<<~YAML)
+        name: Invalid Retry
+        steps:
+          - name: Flaky
+            run: echo hi
+            retries: 1.5
+      YAML
+
+      exit_code, stdout, stderr = run_cli(["validate", path])
+
+      expect(exit_code).to eq(2)
+      expect(stdout).to be_empty
+      expect(stderr).to include("retries must be a non-negative integer")
+    ensure
+      FileUtils.remove_entry(directory) if directory
+    end
   end
 
   describe "list" do
@@ -276,6 +350,29 @@ RSpec.describe MiniCi::CLI do
       expect(exit_code).to eq(0)
       expect(stdout).to include("Slow step")
       expect(stdout).to include("Timeout: 1s")
+      expect(stderr).to be_empty
+    end
+
+    it "displays retry settings" do
+      exit_code, stdout, stderr = run_cli(["list", "examples/retry-pipeline.yml"])
+
+      expect(exit_code).to eq(0)
+      expect(stdout).to include("Flaky check")
+      expect(stdout).to include("Retries: 2")
+      expect(stdout).to include("Retry delay: 0.10s")
+      expect(stderr).to be_empty
+    end
+
+    it "displays each phase" do
+      exit_code, stdout, stderr = run_cli(["list", "examples/hooks-success-pipeline.yml"])
+
+      expect(exit_code).to eq(0)
+      expect(stdout).to include("Before all:")
+      expect(stdout).to include("1. Prepare workspace")
+      expect(stdout).to include("Steps:")
+      expect(stdout).to include("1. Check marker exists")
+      expect(stdout).to include("After all:")
+      expect(stdout).to include("1. Clean workspace")
       expect(stderr).to be_empty
     end
 
@@ -333,7 +430,7 @@ RSpec.describe MiniCi::CLI do
 
       expect(exit_code).to eq(1)
       expect(stdout).to include("Status: FAILED")
-      expect(stdout).to include("Skipped: 1")
+      expect(stdout).to include("Skipped main steps: 1")
     end
 
     it "accepts a custom configuration file" do
@@ -379,8 +476,57 @@ RSpec.describe MiniCi::CLI do
 
       expect(exit_code).to eq(1)
       expect(stdout.downcase).to include("timed out")
-      expect(stdout).to include("Skipped: 1")
+      expect(stdout).to include("Skipped main steps: 1")
       expect(stdout).not_to include("Never reached")
+    end
+
+    it "returns 0 for a retry-success pipeline" do
+      exit_code, stdout, stderr = run_cli(["run", "examples/retry-pipeline.yml"])
+
+      expect(exit_code).to eq(0)
+      expect(stdout).to include("Attempt 1/3")
+      expect(stdout).to include("Attempt 2/3")
+      expect(stdout).to include("Status: PASSED")
+      expect(stderr).to be_empty
+    end
+
+    it "returns 1 for a retry-failure pipeline" do
+      exit_code, stdout, = run_cli(["run", "examples/retry-failure-pipeline.yml"])
+
+      expect(exit_code).to eq(1)
+      expect(stdout).to include("Step failed after 3 attempts")
+      expect(stdout).to include("Status: FAILED")
+      expect(stdout).not_to include("this should be skipped")
+    end
+
+    it "returns 0 for the successful hook example" do
+      exit_code, stdout, stderr = run_cli(["run", "examples/hooks-success-pipeline.yml"])
+
+      expect(exit_code).to eq(0)
+      expect(stdout).to include("Setup")
+      expect(stdout).to include("Pipeline")
+      expect(stdout).to include("Cleanup")
+      expect(stdout).to include("Status: PASSED")
+      expect(stderr).to be_empty
+    end
+
+    it "returns 1 for the main-failure hook example and still runs cleanup" do
+      exit_code, stdout, = run_cli(["run", "examples/hooks-main-failure-pipeline.yml"])
+
+      expect(exit_code).to eq(1)
+      expect(stdout).to include("Failing main step")
+      expect(stdout).to include("Clean workspace")
+      expect(stdout).not_to include("This should not run")
+      expect(stdout).to include("Skipped main steps: 1")
+    end
+
+    it "returns 1 for the cleanup-failure hook example and keeps cleaning up" do
+      exit_code, stdout, = run_cli(["run", "examples/hooks-cleanup-failure-pipeline.yml"])
+
+      expect(exit_code).to eq(1)
+      expect(stdout).to include("Failing cleanup hook")
+      expect(stdout).to include("Cleanup still runs")
+      expect(stdout).to include("Cleanup failures:")
     end
   end
 

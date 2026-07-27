@@ -1,0 +1,17 @@
+name: Retry Example
+
+env:
+  MINI_CI_STATE_FILE: /tmp/mini-ci-retry-example.state
+  FAILURES_BEFORE_SUCCESS: 1
+
+steps:
+  - name: Start retry example
+    run: bash -c 'rm -f "$MINI_CI_STATE_FILE"; echo "retry example started"'
+
+  - name: Flaky check
+    run: bash scripts/flaky_check.sh
+    retries: 2
+    retry_delay: 0.1
+
+  - name: Pipeline continued
+    run: echo "pipeline continued after retry"

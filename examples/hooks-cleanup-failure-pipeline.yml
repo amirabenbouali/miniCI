@@ -1,0 +1,16 @@
+name: Hooks Cleanup Failure Example
+
+before_all:
+  - name: Prepare workspace
+    run: bash scripts/prepare_workspace.sh
+
+steps:
+  - name: Successful main step
+    run: echo "Main work completed"
+
+after_all:
+  - name: Failing cleanup hook
+    run: bash -c 'exit 2'
+
+  - name: Cleanup still runs
+    run: bash scripts/cleanup_workspace.sh

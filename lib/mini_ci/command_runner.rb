@@ -1,27 +1,29 @@
 # frozen_string_literal: true
 
 require "English"
+require_relative "attempt_result"
 
 module MiniCi
   class CommandRunner
-    Result = Struct.new(:success?, :exit_status, :duration, :timed_out?, :timeout, keyword_init: true)
+    Result = AttemptResult
     TERMINATION_GRACE_SECONDS = 0.5
 
     def initialize(clock: -> { Process.clock_gettime(Process::CLOCK_MONOTONIC) })
       @clock = clock
     end
 
-    def run(command, env: {}, timeout: nil)
+    def run(command, env: {}, timeout: nil, attempt_number: 1)
       started_at = @clock.call
       pid = Process.spawn(env, command, pgroup: true)
       status = wait_for_process(pid, timeout)
       finished_at = @clock.call
 
-      Result.new(
-        success?: !status[:timed_out] && status[:exit_status].zero?,
+      AttemptResult.new(
+        attempt_number: attempt_number,
+        success: !status[:timed_out] && status[:exit_status].zero?,
         exit_status: status[:exit_status],
         duration: finished_at - started_at,
-        timed_out?: status[:timed_out],
+        timed_out: status[:timed_out],
         timeout: timeout
       )
     end

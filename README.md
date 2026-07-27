@@ -1,26 +1,30 @@
 # Mini CI
 
-Mini CI is a lightweight local CI/CD pipeline runner written primarily in Ruby. It loads pipeline steps from a YAML configuration file, runs shell commands one after another on your local machine, records step durations, and prints a final execution summary.
+Mini CI is a lightweight local CI/CD pipeline runner written primarily in Ruby. It loads pipeline steps and hooks from a YAML configuration file, runs shell commands one after another on your local machine, records durations, and prints a final execution summary.
 
 ## Current Milestone
 
-Mini CI v0.6 supports:
+Mini CI v0.8 supports:
 
 - loading pipeline steps from `pipeline.yml`;
 - loading a custom pipeline configuration path;
 - a structured CLI with `run`, `validate`, `list`, `version`, and `help` commands;
+- setup hooks with `before_all`;
+- cleanup hooks with `after_all`;
+- guaranteed cleanup after setup or main-step failures;
 - pipeline-level and step-level environment variables;
 - step-level environment variables overriding global values;
 - optional per-step command timeouts;
+- per-step retries with configurable retry delays;
 - validating pipeline configuration with clear error messages;
 - running shell commands sequentially;
 - recording each executed step result;
 - printing each step duration;
 - printing a final pipeline summary;
-- stopping after the first failed command;
+- stopping setup or main execution after the first failed command;
 - returning a non-zero application exit status when the pipeline fails.
 
-It does not yet support retries, parallel execution, secrets management, `.env` files, Docker, deployment logic, a web frontend, a database, or external APIs.
+It does not yet support conditional step execution, parallel execution, secrets management, `.env` files, Docker, deployment logic, a web frontend, a database, or external APIs.
 
 ## Requirements
 
@@ -85,7 +89,7 @@ Mini CI looks for `pipeline.yml` in the current working directory by default.
 
 ### Format
 
-A pipeline configuration file contains a pipeline name, optional global environment variables, and an ordered list of steps. Each step has a display name, a shell command to run, optional step-specific environment variables, and an optional timeout in seconds:
+A pipeline configuration file contains a pipeline name, optional global environment variables, optional hooks, and an ordered list of steps. Each step and hook has a display name, a shell command to run, optional item-specific environment variables, an optional timeout in seconds, optional retries, and an optional retry delay:
 
 ```yaml
 name: Environment Example
@@ -106,6 +110,54 @@ steps:
       SHARED_VALUE: step
       FEATURE_FLAG: enabled
 ```
+
+### Hooks
+
+Hooks are reusable commands that run around the main pipeline:
+
+```yaml
+name: Hook Example
+
+before_all:
+  - name: Prepare workspace
+    run: bash scripts/prepare_workspace.sh
+
+steps:
+  - name: Run tests
+    run: bundle exec rspec
+
+after_all:
+  - name: Clean workspace
+    run: bash scripts/cleanup_workspace.sh
+```
+
+Execution order is always:
+
+```text
+before_all hooks
+main steps
+after_all hooks
+```
+
+`before_all` and `after_all` are optional. Missing hook sections behave like empty arrays. Hooks support the same fields as normal steps:
+
+```yaml
+name: Prepare workspace
+run: bash scripts/prepare_workspace.sh
+env:
+  SETUP_MODE: local
+timeout: 5
+retries: 1
+retry_delay: 0.5
+```
+
+Failure behavior:
+
+- If a `before_all` hook fails after retries, Mini CI stops remaining setup hooks, skips all main steps, still runs every `after_all` hook, and marks the pipeline as failed.
+- If a main step fails after retries, Mini CI stops remaining main steps, still runs every `after_all` hook, and marks the pipeline as failed.
+- If an `after_all` hook fails, Mini CI keeps running the remaining cleanup hooks and marks the pipeline as failed.
+- If normal work already failed, that remains the primary failure and cleanup failures are reported separately.
+- If normal work passed but cleanup failed, the cleanup failure becomes the primary failure.
 
 ### Custom Configuration Path
 
@@ -129,6 +181,10 @@ Mini CI validates the configuration before running any commands. It raises clear
 - a missing `steps` key;
 - a `steps` value that is not an array;
 - an empty `steps` array;
+- `before_all` or `after_all` values that are not arrays;
+- hook entries that are not mappings/objects;
+- hook entries missing `name` or `run`;
+- blank hook names or run commands;
 - a step that is not a mapping/object;
 - a step missing `name`;
 - a step missing `run`;
@@ -142,7 +198,9 @@ Mini CI validates the configuration before running any commands. It raises clear
 - null environment variable values;
 - environment variable values containing null bytes;
 - `timeout` values that are strings, booleans, null, arrays, or mappings;
-- `timeout` values that are zero, negative, or non-finite.
+- `timeout` values that are zero, negative, or non-finite;
+- `retries` values that are negative, decimal numbers, strings, booleans, null, arrays, or mappings;
+- `retry_delay` values that are negative, strings, booleans, null, arrays, mappings, or non-finite.
 
 If the `name` field is omitted, Mini CI uses the default pipeline name `Mini CI`.
 
@@ -173,10 +231,10 @@ Mini CI applies environment values in this order:
 ```text
 existing process environment
 pipeline-level environment variables
-step-level environment variables
+step-level or hook-level environment variables
 ```
 
-Later values override earlier values. For example, if your shell has `APP_ENV=development`, the pipeline has `APP_ENV=test`, and a step has `APP_ENV=integration`, that step receives `APP_ENV=integration`.
+Later values override earlier values. For example, if your shell has `APP_ENV=development`, the pipeline has `APP_ENV=test`, and a step or hook has `APP_ENV=integration`, that item receives `APP_ENV=integration`.
 
 Simple YAML scalar values are converted to strings before commands run:
 
@@ -224,9 +282,40 @@ Mini CI starts each command in its own process group. On timeout, it sends `TERM
 
 The current timeout implementation targets Unix-like environments such as Linux and macOS.
 
+### Step Retries
+
+Each step can retry after a normal failure or timeout:
+
+```yaml
+steps:
+  - name: Check external service
+    run: bash scripts/flaky_check.sh
+    retries: 2
+    retry_delay: 1
+```
+
+`retries` means additional attempts after the first run:
+
+```text
+retries: 0 -> 1 total attempt
+retries: 2 -> 3 total attempts
+```
+
+`retry_delay` is the number of seconds to wait between failed attempts. It accepts integers and decimals:
+
+```yaml
+retry_delay: 0
+retry_delay: 1
+retry_delay: 0.5
+```
+
+Mini CI does not wait before the first attempt, after a successful attempt, or after the final failed attempt. Step duration includes retry delays because they are part of the real elapsed time.
+
+Timed-out attempts count as failed attempts. If retries remain, Mini CI retries after the configured delay and preserves timeout details in the attempt history.
+
 ### Referencing Bash Scripts
 
-Steps run shell commands directly. To run a Bash script, reference it in the `run` field:
+Steps and hooks run shell commands directly. To run a Bash script, reference it in the `run` field:
 
 ```yaml
 - name: Run Bash script
@@ -237,6 +326,8 @@ Make the script executable before running the pipeline:
 
 ```bash
 chmod +x scripts/print_env.sh
+chmod +x scripts/prepare_workspace.sh
+chmod +x scripts/cleanup_workspace.sh
 ```
 
 Example script:
@@ -264,7 +355,9 @@ Example output:
 Pipeline configuration is valid.
 
 Name: Environment Example
+Before-all hooks: 0
 Steps: 2
+After-all hooks: 0
 Environment variables: 3
 File: pipeline.yml
 ```
@@ -293,15 +386,34 @@ Global environment:
   LOG_LEVEL=info
   SHARED_VALUE=global
 
-1. Print global variables
-   bash scripts/print_env.sh
+Steps:
+  1. Print global variables
+     bash scripts/print_env.sh
 
-2. Override one variable
-   ruby -e 'puts ENV.fetch("SHARED_VALUE")'
-   Timeout: 5s
-   Environment:
-     SHARED_VALUE=step
-     FEATURE_FLAG=enabled
+  2. Override one variable
+     ruby -e 'puts ENV.fetch("SHARED_VALUE")'
+     Timeout: 5s
+     Environment:
+       SHARED_VALUE=step
+       FEATURE_FLAG=enabled
+```
+
+Hook pipelines are grouped by phase:
+
+```text
+Hooks Success Example
+
+Before all:
+  1. Prepare workspace
+     bash scripts/prepare_workspace.sh
+
+Steps:
+  1. Check marker exists
+     test -f tmp/mini_ci_hooks/marker.txt
+
+After all:
+  1. Clean workspace
+     bash scripts/cleanup_workspace.sh
 ```
 
 ## Run The Example Pipeline
@@ -317,6 +429,8 @@ When all steps pass, Mini CI prints output similar to:
 ```text
 Mini CI — Environment Example
 
+Pipeline
+
 [1/2] Print global variables
 APP_ENV=test
 LOG_LEVEL=info
@@ -331,6 +445,7 @@ Pipeline summary
 
 Status: PASSED
 Steps: 2 passed, 0 failed, 2 total
+Attempts: 2
 Duration: 0.09s
 ```
 
@@ -355,6 +470,8 @@ Expected output is similar to:
 ```text
 Mini CI — Failing Example
 
+Pipeline
+
 [1/3] Successful step
 Step one passed
 ✓ Passed in 0.01s
@@ -367,8 +484,12 @@ Pipeline summary
 
 Status: FAILED
 Steps: 1 passed, 1 failed, 3 configured
-Skipped: 1
+Skipped main steps: 1
+Attempts: 2
 Duration: 1.50s
+
+Primary failure:
+  Failing step failed with exit code 1
 ```
 
 Inspect the exit status:
@@ -393,6 +514,8 @@ Expected output is similar to:
 ```text
 Mini CI — Timeout Example
 
+Pipeline
+
 [1/3] Quick step
 quick step completed
 ✓ Passed in 0.08s
@@ -405,12 +528,101 @@ Pipeline summary
 
 Status: FAILED
 Steps: 1 passed, 1 failed, 3 configured
-Skipped: 1
+Skipped main steps: 1
+Attempts: 2
 Duration: 1.10s
-Failure: Slow step timed out
+
+Primary failure:
+  Slow step timed out after 1.00s
 ```
 
 The timeout pipeline exits with status `1`.
+
+## Retry Example Pipelines
+
+Run the retry-success example:
+
+```bash
+bundle exec bin/mini-ci run examples/retry-pipeline.yml
+echo $?
+```
+
+Expected output includes a flaky step failing once, retrying, and then succeeding:
+
+```text
+[2/3] Flaky check
+
+Attempt 1/3
+✗ Failed with exit code 1 in 0.02s
+Retrying in 0.10s...
+
+Attempt 2/3
+✓ Passed in 0.02s
+
+[3/3] Pipeline continued
+pipeline continued after retry
+
+Pipeline summary
+
+Status: PASSED
+Steps: 3 passed, 0 failed, 3 total
+Retried steps: 1
+Attempts: 4
+Duration: 0.20s
+```
+
+Run the exhausted-retries example:
+
+```bash
+bundle exec bin/mini-ci run examples/retry-failure-pipeline.yml
+echo $?
+```
+
+Expected output includes all attempts failing and the later step being skipped:
+
+```text
+Step failed after 3 attempts.
+
+Pipeline summary
+
+Status: FAILED
+Steps: 1 passed, 1 failed, 3 configured
+Skipped main steps: 1
+Retried steps: 1
+Attempts: 4
+
+Primary failure:
+  Always flaky check failed after 3 attempts with exit code 1
+```
+
+## Hook Example Pipelines
+
+Run the successful hook example:
+
+```bash
+bundle exec bin/mini-ci run examples/hooks-success-pipeline.yml
+echo $?
+```
+
+It exits with status `0` after setup, main steps, and cleanup all pass.
+
+Run the main-failure hook example:
+
+```bash
+bundle exec bin/mini-ci run examples/hooks-main-failure-pipeline.yml
+echo $?
+```
+
+It exits with status `1`. The failing main step stops later main steps, but the cleanup hook still runs.
+
+Run the cleanup-failure hook example:
+
+```bash
+bundle exec bin/mini-ci run examples/hooks-cleanup-failure-pipeline.yml
+echo $?
+```
+
+It exits with status `1`. The first cleanup hook fails, the later cleanup hook still runs, and the summary includes cleanup failures.
 
 ## Version And Help
 
@@ -423,7 +635,7 @@ bundle exec bin/mini-ci version
 Example output:
 
 ```text
-Mini CI 0.6.0
+Mini CI 0.8.0
 ```
 
 Show help:
@@ -452,7 +664,7 @@ The final summary reports:
 - `failed` — executed steps whose command exited with a non-zero status;
 - `skipped` — configured steps that did not run because an earlier step failed.
 
-When all configured steps run, the summary reports the configured count as `total`. When the pipeline stops early, it reports the configured count and includes a `Skipped:` line.
+When all configured main steps run, the summary reports the configured count as `total`. When the pipeline stops early, it reports the configured count and includes a `Skipped main steps:` line. Setup and cleanup hooks are reported separately.
 
 ## Exit Status
 
@@ -479,12 +691,15 @@ Run `mini-ci help` for usage information.
 ## Current Limitations
 
 - Steps run one at a time.
-- A pipeline stops at the first failed command.
+- Setup and main pipeline work stop at the first failed command.
+- Cleanup hooks still run after setup or main-step failures.
+- Cleanup hooks keep running after cleanup failures.
 - No secrets management or secret masking.
 - No `.env` file support.
 - Timeout process-group termination is currently intended for Unix-like systems.
-- No retries, parallel execution, Docker, deployment, frontend, or database support.
+- No conditional step execution yet.
+- No parallel execution, Docker, deployment, frontend, or database support.
 
 ## Next Milestone
 
-The next planned milestone adds retries.
+The next planned milestone adds conditional step execution.

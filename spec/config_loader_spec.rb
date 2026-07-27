@@ -212,6 +212,250 @@ RSpec.describe MiniCi::ConfigLoader do
       FileUtils.remove_entry(directory)
     end
 
+    it "defaults retries to zero" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+      YAML
+
+      config = loader_for(path).load
+
+      expect(config.steps.first.retries).to eq(0)
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "defaults retry delay to zero" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+      YAML
+
+      config = loader_for(path).load
+
+      expect(config.steps.first.retry_delay).to eq(0)
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "loads valid retry values" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+            retries: 2
+            retry_delay: 1.5
+      YAML
+
+      config = loader_for(path).load
+
+      expect(config.steps.first.retries).to eq(2)
+      expect(config.steps.first.retry_delay).to eq(1.5)
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "accepts integer retries" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+            retries: 3
+      YAML
+
+      config = loader_for(path).load
+
+      expect(config.steps.first.retries).to eq(3)
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "accepts integer and decimal retry delays" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Integer delay
+            run: echo hi
+            retry_delay: 1
+          - name: Decimal delay
+            run: echo hi
+            retry_delay: 0.5
+      YAML
+
+      config = loader_for(path).load
+
+      expect(config.steps.map(&:retry_delay)).to eq([1, 0.5])
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "uses empty hook arrays when hooks are omitted" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+      YAML
+
+      config = loader_for(path).load
+
+      expect(config.before_all).to eq([])
+      expect(config.after_all).to eq([])
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "loads valid hooks in order" do
+      path, directory = write_config(<<~YAML)
+        before_all:
+          - name: Prepare
+            run: echo prepare
+          - name: Warm cache
+            run: echo cache
+        steps:
+          - name: Step
+            run: echo step
+        after_all:
+          - name: Cleanup
+            run: echo cleanup
+      YAML
+
+      config = loader_for(path).load
+
+      expect(config.before_all.map(&:name)).to eq(["Prepare", "Warm cache"])
+      expect(config.before_all.map(&:command)).to eq(["echo prepare", "echo cache"])
+      expect(config.after_all.map(&:name)).to eq(["Cleanup"])
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "preserves hook options" do
+      path, directory = write_config(<<~YAML)
+        before_all:
+          - name: Prepare
+            run: echo prepare
+            timeout: 2
+            retries: 1
+            retry_delay: 0.5
+            env:
+              HOOK_ENV: "yes"
+        steps:
+          - name: Step
+            run: echo step
+      YAML
+
+      hook = loader_for(path).load.before_all.first
+
+      expect(hook.timeout).to eq(2)
+      expect(hook.retries).to eq(1)
+      expect(hook.retry_delay).to eq(0.5)
+      expect(hook.env).to eq("HOOK_ENV" => "yes")
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects hook containers that are not arrays" do
+      path, directory = write_config(<<~YAML)
+        before_all:
+          name: Prepare
+          run: echo prepare
+        steps:
+          - name: Step
+            run: echo step
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: before_all must be an array")
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects invalid hook entries and identifies the phase and index" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo step
+        after_all:
+          - name: Cleanup one
+            run: echo cleanup
+          - name: Cleanup two
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, 'Invalid pipeline configuration: after_all hook 2 is missing "run"')
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects invalid hook options and identifies the hook" do
+      path, directory = write_config(<<~YAML)
+        before_all:
+          - name: Prepare
+            run: echo prepare
+            retries: -1
+        steps:
+          - name: Step
+            run: echo step
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: before_all hook 1 retries must be a non-negative integer")
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects invalid hook environment variables" do
+      path, directory = write_config(<<~YAML)
+        before_all:
+          - name: Prepare
+            run: echo prepare
+            env:
+              BAD-NAME: value
+        steps:
+          - name: Step
+            run: echo step
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, /before_all hook 1 env/)
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects invalid hook timeouts" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo step
+        after_all:
+          - name: Cleanup
+            run: echo cleanup
+            timeout: 0
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: after_all hook 1 timeout must be greater than 0")
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects invalid hook retry delays" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo step
+        after_all:
+          - name: Cleanup
+            run: echo cleanup
+            retry_delay: -0.1
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: after_all hook 1 retry_delay must be a non-negative number")
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
     it "raises when the configuration file is missing" do
       directory = Dir.mktmpdir
 
@@ -616,6 +860,192 @@ RSpec.describe MiniCi::ConfigLoader do
 
       expect { loader_for(path).load }
         .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 timeout must be a positive number")
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects negative retries" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+            retries: -1
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 retries must be a non-negative integer")
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects decimal retries" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+            retries: 1.5
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 retries must be a non-negative integer")
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects string retries" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+            retries: "2"
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 retries must be a non-negative integer")
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects boolean retries" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+            retries: true
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 retries must be a non-negative integer")
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects null retries" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+            retries:
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 retries must be a non-negative integer")
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects array retries" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+            retries:
+              - 1
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 retries must be a non-negative integer")
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects mapping retries" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+            retries:
+              count: 1
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 retries must be a non-negative integer")
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects negative retry delay" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+            retry_delay: -0.1
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 retry_delay must be a non-negative number")
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects invalid retry delay types" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+            retry_delay: "1"
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 retry_delay must be a non-negative number")
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects boolean retry delay" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+            retry_delay: false
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 retry_delay must be a non-negative number")
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects null retry delay" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+            retry_delay:
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 retry_delay must be a non-negative number")
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects array retry delay" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+            retry_delay:
+              - 1
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 retry_delay must be a non-negative number")
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects mapping retry delay" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+            retry_delay:
+              seconds: 1
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 retry_delay must be a non-negative number")
     ensure
       FileUtils.remove_entry(directory)
     end

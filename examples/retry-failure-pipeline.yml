@@ -1,0 +1,17 @@
+name: Retry Failure Example
+
+env:
+  MINI_CI_STATE_FILE: /tmp/mini-ci-retry-failure-example.state
+  FAILURES_BEFORE_SUCCESS: 5
+
+steps:
+  - name: Reset retry state
+    run: bash -c 'rm -f "$MINI_CI_STATE_FILE"; echo "retry state reset"'
+
+  - name: Always flaky check
+    run: bash scripts/flaky_check.sh
+    retries: 2
+    retry_delay: 0.1
+
+  - name: Never reached
+    run: echo "this should be skipped"

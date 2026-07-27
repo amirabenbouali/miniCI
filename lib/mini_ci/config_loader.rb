@@ -8,7 +8,7 @@ module MiniCi
     DEFAULT_PIPELINE_NAME = "Mini CI"
     ENV_NAME_PATTERN = /\A[A-Za-z_][A-Za-z0-9_]*\z/
 
-    Configuration = Struct.new(:name, :steps, :env, keyword_init: true)
+    Configuration = Struct.new(:name, :before_all, :steps, :after_all, :env, keyword_init: true)
 
     def initialize(path: DEFAULT_CONFIG_FILE)
       @path = path
@@ -46,9 +46,11 @@ module MiniCi
 
       pipeline_name = extract_pipeline_name(data)
       env = build_env(data.fetch("env", nil), "global env")
+      before_all = build_hooks(data.fetch("before_all", nil), "before_all")
       steps = build_steps(data.fetch("steps", nil))
+      after_all = build_hooks(data.fetch("after_all", nil), "after_all")
 
-      Configuration.new(name: pipeline_name, steps: steps, env: env)
+      Configuration.new(name: pipeline_name, before_all: before_all, steps: steps, after_all: after_all, env: env)
     end
 
     def extract_pipeline_name(data)
@@ -77,37 +79,58 @@ module MiniCi
       end
 
       steps_data.each_with_index.map do |step_data, index|
-        build_step(step_data, index + 1)
+        build_step(step_data, "step #{index + 1}")
       end
     end
 
-    def build_step(step_data, step_number)
+    def build_hooks(hooks_data, key)
+      return [] if hooks_data.nil?
+
+      unless hooks_data.is_a?(Array)
+        raise ConfigurationError, "Invalid pipeline configuration: #{key} must be an array"
+      end
+
+      hooks_data.each_with_index.map do |hook_data, index|
+        build_step(hook_data, "#{key} hook #{index + 1}")
+      end
+    end
+
+    def build_step(step_data, label)
       unless step_data.is_a?(Hash)
-        raise ConfigurationError, "Invalid pipeline configuration: step #{step_number} must be a mapping"
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} must be a mapping"
       end
 
       unless step_data.key?("name")
-        raise ConfigurationError, "Invalid pipeline configuration: step #{step_number} is missing \"name\""
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} is missing \"name\""
       end
 
       unless step_data.key?("run")
-        raise ConfigurationError, "Invalid pipeline configuration: step #{step_number} is missing \"run\""
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} is missing \"run\""
       end
 
       name = step_data["name"]
       command = step_data["run"]
-      env = build_env(step_data.fetch("env", nil), "step #{step_number} env")
-      timeout = build_timeout(step_data["timeout"], step_number) if step_data.key?("timeout")
+      env = build_env(step_data.fetch("env", nil), "#{label} env")
+      timeout = build_timeout(step_data["timeout"], label) if step_data.key?("timeout")
+      retries = build_retries(step_data["retries"], label) if step_data.key?("retries")
+      retry_delay = build_retry_delay(step_data["retry_delay"], label) if step_data.key?("retry_delay")
 
       unless name.is_a?(String) && !name.strip.empty?
-        raise ConfigurationError, "Invalid pipeline configuration: step #{step_number} has a blank name"
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} has a blank name"
       end
 
       unless command.is_a?(String) && !command.strip.empty?
-        raise ConfigurationError, "Invalid pipeline configuration: step #{step_number} has a blank run command"
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} has a blank run command"
       end
 
-      Step.new(name: name, command: command, env: env, timeout: timeout)
+      Step.new(
+        name: name,
+        command: command,
+        env: env,
+        timeout: timeout,
+        retries: retries || 0,
+        retry_delay: retry_delay || 0
+      )
     end
 
     def build_env(env_data, label)
@@ -165,13 +188,29 @@ module MiniCi
       string_value
     end
 
-    def build_timeout(value, step_number)
+    def build_timeout(value, label)
       unless value.is_a?(Numeric) && value.finite?
-        raise ConfigurationError, "Invalid pipeline configuration: step #{step_number} timeout must be a positive number"
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} timeout must be a positive number"
       end
 
       unless value.positive?
-        raise ConfigurationError, "Invalid pipeline configuration: step #{step_number} timeout must be greater than 0"
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} timeout must be greater than 0"
+      end
+
+      value
+    end
+
+    def build_retries(value, label)
+      unless value.is_a?(Integer) && !value.is_a?(TrueClass) && !value.is_a?(FalseClass) && value >= 0
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} retries must be a non-negative integer"
+      end
+
+      value
+    end
+
+    def build_retry_delay(value, label)
+      unless value.is_a?(Numeric) && !value.is_a?(TrueClass) && !value.is_a?(FalseClass) && value.finite? && value >= 0
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} retry_delay must be a non-negative number"
       end
 
       value

@@ -1,0 +1,16 @@
+name: Hooks Main Failure Example
+
+before_all:
+  - name: Prepare workspace
+    run: bash scripts/prepare_workspace.sh
+
+steps:
+  - name: Failing main step
+    run: bash -c 'exit 1'
+
+  - name: Skipped main step
+    run: echo "This should not run"
+
+after_all:
+  - name: Clean workspace
+    run: bash scripts/cleanup_workspace.sh
