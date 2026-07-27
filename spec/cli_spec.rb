@@ -102,8 +102,9 @@ RSpec.describe MiniCi::CLI do
 
       expect(exit_code).to eq(0)
       expect(stdout).to include("Pipeline configuration is valid.")
-      expect(stdout).to include("Name: Mini CI Example")
-      expect(stdout).to include("Steps: 3")
+      expect(stdout).to include("Name: Environment Example")
+      expect(stdout).to include("Steps: 2")
+      expect(stdout).to include("Environment variables: 3")
       expect(stdout).to include("File: pipeline.yml")
       expect(stderr).to be_empty
     end
@@ -121,6 +122,7 @@ RSpec.describe MiniCi::CLI do
       expect(exit_code).to eq(0)
       expect(stdout).to include("Name: Custom Pipeline")
       expect(stdout).to include("Steps: 1")
+      expect(stdout).to include("Environment variables: 0")
       expect(stdout).to include("File: #{path}")
     ensure
       FileUtils.remove_entry(directory) if directory
@@ -158,6 +160,48 @@ RSpec.describe MiniCi::CLI do
     ensure
       FileUtils.remove_entry(directory) if directory
     end
+
+    it "accepts valid environment configuration" do
+      path, directory = write_temp_config(<<~YAML)
+        name: Env Pipeline
+        env:
+          APP_ENV: test
+        steps:
+          - name: Step
+            run: echo hi
+            env:
+              APP_ENV: integration
+      YAML
+
+      exit_code, stdout, stderr = run_cli(["validate", path])
+
+      expect(exit_code).to eq(0)
+      expect(stdout).to include("Name: Env Pipeline")
+      expect(stdout).to include("Environment variables: 1")
+      expect(stderr).to be_empty
+    ensure
+      FileUtils.remove_entry(directory) if directory
+    end
+
+    it "rejects invalid environment configuration" do
+      path, directory = write_temp_config(<<~YAML)
+        name: Invalid Env
+        env:
+          APP-NAME: test
+        steps:
+          - name: Step
+            run: echo hi
+      YAML
+
+      exit_code, stdout, stderr = run_cli(["validate", path])
+
+      expect(exit_code).to eq(2)
+      expect(stdout).to be_empty
+      expect(stderr).to include("Mini CI error: Invalid pipeline configuration:")
+      expect(stderr).to include("APP-NAME")
+    ensure
+      FileUtils.remove_entry(directory) if directory
+    end
   end
 
   describe "list" do
@@ -165,14 +209,29 @@ RSpec.describe MiniCi::CLI do
       exit_code, stdout, stderr = run_cli(["list"])
 
       expect(exit_code).to eq(0)
-      expect(stdout).to include("Mini CI Example")
-      expect(stdout).to include("1. Check Ruby version")
-      expect(stdout).to include("ruby --version")
-      expect(stdout).to include("2. Print message")
-      expect(stdout).to include('echo "Running checks"')
-      expect(stdout).to include("3. Run Bash script")
-      expect(stdout).to include("bash scripts/example_check.sh")
+      expect(stdout).to include("Environment Example")
+      expect(stdout).to include("1. Print global variables")
+      expect(stdout).to include("bash scripts/print_env.sh")
+      expect(stdout).to include("2. Override one variable")
+      expect(stdout).to include('ruby -e')
       expect(stderr).to be_empty
+    end
+
+    it "displays global variables" do
+      _exit_code, stdout, = run_cli(["list"])
+
+      expect(stdout).to include("Global environment:")
+      expect(stdout).to include("APP_ENV=test")
+      expect(stdout).to include("LOG_LEVEL=info")
+      expect(stdout).to include("SHARED_VALUE=global")
+    end
+
+    it "displays step-specific variables" do
+      _exit_code, stdout, = run_cli(["list"])
+
+      expect(stdout).to include("Environment:")
+      expect(stdout).to include("SHARED_VALUE=step")
+      expect(stdout).to include("FEATURE_FLAG=enabled")
     end
 
     it "accepts a custom configuration file" do
@@ -218,7 +277,7 @@ RSpec.describe MiniCi::CLI do
       exit_code, stdout, stderr = run_cli(["run"])
 
       expect(exit_code).to eq(0)
-      expect(stdout).to include("Mini CI Example")
+      expect(stdout).to include("Environment Example")
       expect(stdout).to include("Pipeline summary")
       expect(stdout).to include("Status: PASSED")
       expect(stderr).to be_empty
@@ -245,6 +304,27 @@ RSpec.describe MiniCi::CLI do
       expect(exit_code).to eq(0)
       expect(stdout).to include("Custom Run")
       expect(stdout).to include("Status: PASSED")
+    ensure
+      FileUtils.remove_entry(directory) if directory
+    end
+
+    it "passes configured variables to commands" do
+      directory = Dir.mktmpdir
+      marker = File.join(directory, "env.txt")
+      path = File.join(directory, "pipeline.yml")
+      File.write(path, <<~YAML)
+        name: Env Run
+        env:
+          APP_ENV: test
+        steps:
+          - name: Write env
+            run: ruby -e 'File.write("#{marker}", ENV.fetch("APP_ENV"))'
+      YAML
+
+      exit_code, = run_cli(["run", path])
+
+      expect(exit_code).to eq(0)
+      expect(File.read(marker)).to eq("test")
     ensure
       FileUtils.remove_entry(directory) if directory
     end

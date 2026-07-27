@@ -4,11 +4,13 @@ Mini CI is a lightweight local CI/CD pipeline runner written primarily in Ruby. 
 
 ## Current Milestone
 
-Mini CI v0.4 supports:
+Mini CI v0.5 supports:
 
 - loading pipeline steps from `pipeline.yml`;
 - loading a custom pipeline configuration path;
 - a structured CLI with `run`, `validate`, `list`, `version`, and `help` commands;
+- pipeline-level and step-level environment variables;
+- step-level environment variables overriding global values;
 - validating pipeline configuration with clear error messages;
 - running shell commands sequentially;
 - recording each executed step result;
@@ -17,7 +19,7 @@ Mini CI v0.4 supports:
 - stopping after the first failed command;
 - returning a non-zero application exit status when the pipeline fails.
 
-It does not yet support retries, parallel execution, timeouts, environment variables, Docker, deployment logic, a web frontend, a database, or external APIs.
+It does not yet support retries, parallel execution, timeouts, secrets management, `.env` files, Docker, deployment logic, a web frontend, a database, or external APIs.
 
 ## Requirements
 
@@ -82,20 +84,25 @@ Mini CI looks for `pipeline.yml` in the current working directory by default.
 
 ### Format
 
-A pipeline configuration file contains a pipeline name and an ordered list of steps. Each step has a display name and a shell command to run:
+A pipeline configuration file contains a pipeline name, optional global environment variables, and an ordered list of steps. Each step has a display name, a shell command to run, and optional step-specific environment variables:
 
 ```yaml
-name: Mini CI Example
+name: Environment Example
+
+env:
+  APP_ENV: test
+  LOG_LEVEL: info
+  SHARED_VALUE: global
 
 steps:
-  - name: Check Ruby version
-    run: ruby --version
+  - name: Print global variables
+    run: bash scripts/print_env.sh
 
-  - name: Print message
-    run: echo "Running checks"
-
-  - name: Run Bash script
-    run: bash scripts/example_check.sh
+  - name: Override one variable
+    run: ruby -e 'puts ENV.fetch("SHARED_VALUE")'
+    env:
+      SHARED_VALUE: step
+      FEATURE_FLAG: enabled
 ```
 
 ### Custom Configuration Path
@@ -124,11 +131,73 @@ Mini CI validates the configuration before running any commands. It raises clear
 - a step missing `name`;
 - a step missing `run`;
 - a blank step name;
-- a blank run command.
+- a blank run command;
+- `env` that is not a mapping/object;
+- blank environment variable names;
+- non-string environment variable names;
+- environment variable names containing `=`, null bytes, spaces, hyphens, or other invalid characters;
+- environment variable values that are arrays or mappings;
+- null environment variable values;
+- environment variable values containing null bytes.
 
 If the `name` field is omitted, Mini CI uses the default pipeline name `Mini CI`.
 
 YAML is loaded safely. Arbitrary Ruby objects and YAML aliases are not permitted.
+
+### Environment Variables
+
+Global variables apply to every step:
+
+```yaml
+env:
+  APP_ENV: test
+  DEBUG: "false"
+```
+
+Step-level variables apply only to that step:
+
+```yaml
+steps:
+  - name: Run tests
+    run: bundle exec rspec
+    env:
+      COVERAGE: "true"
+```
+
+Mini CI applies environment values in this order:
+
+```text
+existing process environment
+pipeline-level environment variables
+step-level environment variables
+```
+
+Later values override earlier values. For example, if your shell has `APP_ENV=development`, the pipeline has `APP_ENV=test`, and a step has `APP_ENV=integration`, that step receives `APP_ENV=integration`.
+
+Simple YAML scalar values are converted to strings before commands run:
+
+```yaml
+env:
+  PORT: 3000
+  DEBUG: false
+  EMPTY_VALUE: ""
+```
+
+Commands receive those values as strings: `PORT="3000"`, `DEBUG="false"`, and `EMPTY_VALUE=""`.
+
+Access variables in Ruby:
+
+```ruby
+ENV.fetch("APP_ENV")
+```
+
+Access variables in Bash:
+
+```bash
+echo "$APP_ENV"
+```
+
+Do not store production secrets in pipeline files yet. Pipeline files may be committed to Git, the `list` command displays configured values, and secure secret masking has not been implemented.
 
 ### Referencing Bash Scripts
 
@@ -136,13 +205,13 @@ Steps run shell commands directly. To run a Bash script, reference it in the `ru
 
 ```yaml
 - name: Run Bash script
-  run: bash scripts/example_check.sh
+  run: bash scripts/print_env.sh
 ```
 
 Make the script executable before running the pipeline:
 
 ```bash
-chmod +x scripts/example_check.sh
+chmod +x scripts/print_env.sh
 ```
 
 Example script:
@@ -151,7 +220,9 @@ Example script:
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "Example check completed"
+printf 'APP_ENV=%s\n' "${APP_ENV:-missing}"
+printf 'LOG_LEVEL=%s\n' "${LOG_LEVEL:-missing}"
+printf 'SHARED_VALUE=%s\n' "${SHARED_VALUE:-missing}"
 ```
 
 ## Validate A Pipeline
@@ -167,8 +238,9 @@ Example output:
 ```text
 Pipeline configuration is valid.
 
-Name: Mini CI Example
-Steps: 3
+Name: Environment Example
+Steps: 2
+Environment variables: 3
 File: pipeline.yml
 ```
 
@@ -189,16 +261,21 @@ bundle exec bin/mini-ci list
 Example output:
 
 ```text
-Mini CI Example
+Environment Example
 
-1. Check Ruby version
-   ruby --version
+Global environment:
+  APP_ENV=test
+  LOG_LEVEL=info
+  SHARED_VALUE=global
 
-2. Print message
-   echo "Running checks"
+1. Print global variables
+   bash scripts/print_env.sh
 
-3. Run Bash script
-   bash scripts/example_check.sh
+2. Override one variable
+   ruby -e 'puts ENV.fetch("SHARED_VALUE")'
+   Environment:
+     SHARED_VALUE=step
+     FEATURE_FLAG=enabled
 ```
 
 ## Run The Example Pipeline
@@ -212,25 +289,23 @@ bundle exec bin/mini-ci run
 When all steps pass, Mini CI prints output similar to:
 
 ```text
-Mini CI — Mini CI Example
+Mini CI — Environment Example
 
-[1/3] Check Ruby version
-ruby 3.3.0
+[1/2] Print global variables
+APP_ENV=test
+LOG_LEVEL=info
+SHARED_VALUE=global
 ✓ Passed in 0.08s
 
-[2/3] Print message
-Running checks
+[2/2] Override one variable
+step
 ✓ Passed in 0.01s
-
-[3/3] Run Bash script
-Example check completed
-✓ Passed in 0.04s
 
 Pipeline summary
 
 Status: PASSED
-Steps: 3 passed, 0 failed, 3 total
-Duration: 0.13s
+Steps: 2 passed, 0 failed, 2 total
+Duration: 0.09s
 ```
 
 Inspect the process exit status:
@@ -289,7 +364,7 @@ bundle exec bin/mini-ci version
 Example output:
 
 ```text
-Mini CI 0.4.0
+Mini CI 0.5.0
 ```
 
 Show help:
@@ -346,8 +421,10 @@ Run `mini-ci help` for usage information.
 
 - Steps run one at a time.
 - A pipeline stops at the first failed command.
-- No environment variable management, retries, parallel execution, timeouts, Docker, deployment, frontend, or database support.
+- No secrets management or secret masking.
+- No `.env` file support.
+- No retries, parallel execution, timeouts, Docker, deployment, frontend, or database support.
 
 ## Next Milestone
 
-The next planned milestone adds global and step-specific environment variables.
+The next planned milestone adds command timeouts.

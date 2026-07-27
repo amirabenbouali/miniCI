@@ -11,6 +11,31 @@ RSpec.describe MiniCi::Step do
     expect(step.command).to eq("ruby --version")
   end
 
+  it "defaults environment to empty" do
+    step = described_class.new(name: "Example", command: "echo hi")
+
+    expect(step.env).to eq({})
+  end
+
+  it "stores environment variables" do
+    step = described_class.new(
+      name: "Example",
+      command: "echo hi",
+      env: { "APP_ENV" => "test" }
+    )
+
+    expect(step.env).to eq("APP_ENV" => "test")
+  end
+
+  it "does not allow caller mutation to alter the internal environment" do
+    env = { "APP_ENV" => "test" }
+    step = described_class.new(name: "Example", command: "echo hi", env: env)
+
+    env["APP_ENV"] = "development"
+
+    expect(step.env).to eq("APP_ENV" => "test")
+  end
+
   it "requires a non-empty name" do
     expect do
       described_class.new(name: " ", command: "ruby --version")

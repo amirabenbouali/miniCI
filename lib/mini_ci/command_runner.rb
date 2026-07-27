@@ -10,9 +10,9 @@ module MiniCi
       @clock = clock
     end
 
-    def run(command)
+    def run(command, env: {})
       started_at = @clock.call
-      system(command)
+      system(env, command)
       finished_at = @clock.call
       status = $CHILD_STATUS.exitstatus
 

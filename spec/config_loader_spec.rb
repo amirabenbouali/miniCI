@@ -78,6 +78,96 @@ RSpec.describe MiniCi::ConfigLoader do
       FileUtils.remove_entry(directory)
     end
 
+    it "uses an empty global environment when env is omitted" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+      YAML
+
+      config = loader_for(path).load
+
+      expect(config.env).to eq({})
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "loads valid global environment variables" do
+      path, directory = write_config(<<~YAML)
+        env:
+          APP_ENV: test
+          FEATURE_FLAG_2: enabled
+        steps:
+          - name: Step
+            run: echo hi
+      YAML
+
+      config = loader_for(path).load
+
+      expect(config.env).to eq(
+        "APP_ENV" => "test",
+        "FEATURE_FLAG_2" => "enabled"
+      )
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "converts scalar environment values to strings" do
+      path, directory = write_config(<<~YAML)
+        env:
+          PORT: 3000
+          DEBUG: false
+          EMPTY_VALUE: ""
+        steps:
+          - name: Step
+            run: echo hi
+      YAML
+
+      config = loader_for(path).load
+
+      expect(config.env).to eq(
+        "PORT" => "3000",
+        "DEBUG" => "false",
+        "EMPTY_VALUE" => ""
+      )
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "uses an empty step environment when env is omitted" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+      YAML
+
+      config = loader_for(path).load
+
+      expect(config.steps.first.env).to eq({})
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "loads valid step environment variables" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+            env:
+              APP_ENV: integration
+              FEATURE_FLAG: enabled
+      YAML
+
+      config = loader_for(path).load
+
+      expect(config.steps.first.env).to eq(
+        "APP_ENV" => "integration",
+        "FEATURE_FLAG" => "enabled"
+      )
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
     it "raises when the configuration file is missing" do
       directory = Dir.mktmpdir
 
@@ -105,6 +195,34 @@ RSpec.describe MiniCi::ConfigLoader do
 
       expect { loader_for(path).load }
         .to raise_error(MiniCi::ConfigurationError, 'Invalid pipeline configuration: missing "steps"')
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects global env that is not a mapping" do
+      path, directory = write_config(<<~YAML)
+        env: test
+        steps:
+          - name: Step
+            run: echo hi
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: global env must be a mapping")
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects step env that is not a mapping" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+            env: test
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 env must be a mapping")
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -228,6 +346,151 @@ RSpec.describe MiniCi::ConfigLoader do
 
       expect { loader_for(path).load }
         .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: expected a mapping at the top level")
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects blank environment variable names" do
+      path, directory = write_config(<<~YAML)
+        env:
+          ? "   "
+          : value
+        steps:
+          - name: Step
+            run: echo hi
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: global env contains a blank environment variable name")
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects non-string environment variable names" do
+      path, directory = write_config(<<~YAML)
+        env:
+          123: value
+        steps:
+          - name: Step
+            run: echo hi
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: global env contains a non-string environment variable name")
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects invalid environment variable names" do
+      path, directory = write_config(<<~YAML)
+        env:
+          APP-NAME: value
+        steps:
+          - name: Step
+            run: echo hi
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, 'Invalid pipeline configuration: global env variable "APP-NAME" must use a valid environment variable name')
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects environment variable names containing equals signs" do
+      path, directory = write_config(<<~YAML)
+        env:
+          APP=VALUE: value
+        steps:
+          - name: Step
+            run: echo hi
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, 'Invalid pipeline configuration: global env variable "APP=VALUE" must not contain =')
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects null environment values" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+            env:
+              DATABASE:
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, 'Invalid pipeline configuration: step 1 env variable "DATABASE" must not be null')
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects mapping environment values" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+            env:
+              DATABASE:
+                nested: value
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, 'Invalid pipeline configuration: step 1 env variable "DATABASE" must contain a scalar value')
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects array environment values" do
+      path, directory = write_config(<<~YAML)
+        env:
+          DATABASE:
+            - primary
+        steps:
+          - name: Step
+            run: echo hi
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, 'Invalid pipeline configuration: global env variable "DATABASE" must contain a scalar value')
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects null bytes in environment variable names" do
+      path, directory = write_config("env:\n  \"BAD\\0NAME\": value\nsteps:\n  - name: Step\n    run: echo hi\n")
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: global env variable name contains a null byte")
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects null bytes in environment variable values" do
+      path, directory = write_config("env:\n  BAD: \"bad\\0value\"\nsteps:\n  - name: Step\n    run: echo hi\n")
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, 'Invalid pipeline configuration: global env variable "BAD" contains a null byte')
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "returns environment hashes that cannot be unexpectedly mutated" do
+      path, directory = write_config(<<~YAML)
+        env:
+          APP_ENV: test
+        steps:
+          - name: Step
+            run: echo hi
+            env:
+              APP_ENV: integration
+      YAML
+
+      config = loader_for(path).load
+
+      expect(config.env).to be_frozen
+      expect(config.steps.first.env).to be_frozen
     ensure
       FileUtils.remove_entry(directory)
     end

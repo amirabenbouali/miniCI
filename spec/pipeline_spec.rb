@@ -4,15 +4,17 @@ RSpec.describe MiniCi::Pipeline do
   FakeCommandResult = Struct.new(:success?, :exit_status, :duration, keyword_init: true)
 
   class FakeCommandRunner
-    attr_reader :commands
+    attr_reader :commands, :envs
 
     def initialize(results)
       @results = results
       @commands = []
+      @envs = []
     end
 
-    def run(command)
+    def run(command, env: {})
       @commands << command
+      @envs << env
       @results.fetch(@commands.length - 1)
     end
   end
@@ -29,8 +31,8 @@ RSpec.describe MiniCi::Pipeline do
     def summary(_pipeline_result); end
   end
 
-  def step(name, command)
-    MiniCi::Step.new(name: name, command: command)
+  def step(name, command, env: {})
+    MiniCi::Step.new(name: name, command: command, env: env)
   end
 
   def fake_result(success:, exit_status:, duration: 0.1)
@@ -234,5 +236,104 @@ RSpec.describe MiniCi::Pipeline do
     ).run
 
     expect(result).not_to be_success
+  end
+
+  it "passes global variables to every step" do
+    runner = FakeCommandRunner.new([
+                                     fake_result(success: true, exit_status: 0),
+                                     fake_result(success: true, exit_status: 0)
+                                   ])
+
+    described_class.new(
+      name: "Test Pipeline",
+      steps: [step("One", "echo one"), step("Two", "echo two")],
+      env: { "APP_ENV" => "test" },
+      command_runner: runner,
+      reporter: NullReporter.new,
+      clock: fixed_clock
+    ).run
+
+    expect(runner.envs).to eq([{ "APP_ENV" => "test" }, { "APP_ENV" => "test" }])
+  end
+
+  it "passes step variables only to their own step" do
+    runner = FakeCommandRunner.new([
+                                     fake_result(success: true, exit_status: 0),
+                                     fake_result(success: true, exit_status: 0)
+                                   ])
+
+    described_class.new(
+      name: "Test Pipeline",
+      steps: [
+        step("One", "echo one", env: { "STEP_ONLY" => "yes" }),
+        step("Two", "echo two")
+      ],
+      command_runner: runner,
+      reporter: NullReporter.new,
+      clock: fixed_clock
+    ).run
+
+    expect(runner.envs).to eq([{ "STEP_ONLY" => "yes" }, {}])
+  end
+
+  it "lets step variables override global variables" do
+    runner = FakeCommandRunner.new([
+                                     fake_result(success: true, exit_status: 0)
+                                   ])
+
+    described_class.new(
+      name: "Test Pipeline",
+      steps: [step("One", "echo one", env: { "APP_ENV" => "integration" })],
+      env: { "APP_ENV" => "test" },
+      command_runner: runner,
+      reporter: NullReporter.new,
+      clock: fixed_clock
+    ).run
+
+    expect(runner.envs.first).to eq("APP_ENV" => "integration")
+  end
+
+  it "does not leak environments from one step into another" do
+    runner = FakeCommandRunner.new([
+                                     fake_result(success: true, exit_status: 0),
+                                     fake_result(success: true, exit_status: 0)
+                                   ])
+
+    described_class.new(
+      name: "Test Pipeline",
+      steps: [
+        step("One", "echo one", env: { "FEATURE_FLAG" => "enabled" }),
+        step("Two", "echo two")
+      ],
+      env: { "APP_ENV" => "test" },
+      command_runner: runner,
+      reporter: NullReporter.new,
+      clock: fixed_clock
+    ).run
+
+    expect(runner.envs).to eq([
+                                { "APP_ENV" => "test", "FEATURE_FLAG" => "enabled" },
+                                { "APP_ENV" => "test" }
+                              ])
+  end
+
+  it "does not mutate the original environment hashes" do
+    global_env = { "APP_ENV" => "test" }
+    step_env = { "APP_ENV" => "integration" }
+    runner = FakeCommandRunner.new([
+                                     fake_result(success: true, exit_status: 0)
+                                   ])
+
+    described_class.new(
+      name: "Test Pipeline",
+      steps: [step("One", "echo one", env: step_env)],
+      env: global_env,
+      command_runner: runner,
+      reporter: NullReporter.new,
+      clock: fixed_clock
+    ).run
+
+    expect(global_env).to eq("APP_ENV" => "test")
+    expect(step_env).to eq("APP_ENV" => "integration")
   end
 end

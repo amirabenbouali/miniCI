@@ -6,8 +6,9 @@ module MiniCi
   class ConfigLoader
     DEFAULT_CONFIG_FILE = "pipeline.yml"
     DEFAULT_PIPELINE_NAME = "Mini CI"
+    ENV_NAME_PATTERN = /\A[A-Za-z_][A-Za-z0-9_]*\z/
 
-    Configuration = Struct.new(:name, :steps, keyword_init: true)
+    Configuration = Struct.new(:name, :steps, :env, keyword_init: true)
 
     def initialize(path: DEFAULT_CONFIG_FILE)
       @path = path
@@ -44,9 +45,10 @@ module MiniCi
       end
 
       pipeline_name = extract_pipeline_name(data)
+      env = build_env(data.fetch("env", nil), "global env")
       steps = build_steps(data.fetch("steps", nil))
 
-      Configuration.new(name: pipeline_name, steps: steps)
+      Configuration.new(name: pipeline_name, steps: steps, env: env)
     end
 
     def extract_pipeline_name(data)
@@ -94,6 +96,7 @@ module MiniCi
 
       name = step_data["name"]
       command = step_data["run"]
+      env = build_env(step_data.fetch("env", nil), "step #{step_number} env")
 
       unless name.is_a?(String) && !name.strip.empty?
         raise ConfigurationError, "Invalid pipeline configuration: step #{step_number} has a blank name"
@@ -103,7 +106,62 @@ module MiniCi
         raise ConfigurationError, "Invalid pipeline configuration: step #{step_number} has a blank run command"
       end
 
-      Step.new(name: name, command: command)
+      Step.new(name: name, command: command, env: env)
+    end
+
+    def build_env(env_data, label)
+      return {}.freeze if env_data.nil?
+
+      unless env_data.is_a?(Hash)
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} must be a mapping"
+      end
+
+      env_data.each_with_object({}) do |(key, value), env|
+        variable_name = validate_env_name(key, label)
+        env[variable_name] = validate_env_value(variable_name, value, label)
+      end.freeze
+    end
+
+    def validate_env_name(key, label)
+      unless key.is_a?(String)
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} contains a non-string environment variable name"
+      end
+
+      if key.strip.empty?
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} contains a blank environment variable name"
+      end
+
+      if key.include?("=")
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} variable #{key.inspect} must not contain ="
+      end
+
+      if key.include?("\0")
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} variable name contains a null byte"
+      end
+
+      unless key.match?(ENV_NAME_PATTERN)
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} variable #{key.inspect} must use a valid environment variable name"
+      end
+
+      key
+    end
+
+    def validate_env_value(variable_name, value, label)
+      if value.nil?
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} variable #{variable_name.inspect} must not be null"
+      end
+
+      if value.is_a?(Array) || value.is_a?(Hash)
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} variable #{variable_name.inspect} must contain a scalar value"
+      end
+
+      string_value = value.to_s
+
+      if string_value.include?("\0")
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} variable #{variable_name.inspect} contains a null byte"
+      end
+
+      string_value
     end
   end
 end

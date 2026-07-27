@@ -1,8 +1,16 @@
-name: Mini CI Example
+name: Environment Example
+
+env:
+  APP_ENV: test
+  LOG_LEVEL: info
+  SHARED_VALUE: global
+
 steps:
-  - name: Check Ruby version
-    run: ruby --version
-  - name: Print message
-    run: echo "Running checks"
-  - name: Run Bash script
-    run: bash scripts/example_check.sh
+  - name: Print global variables
+    run: bash scripts/print_env.sh
+
+  - name: Override one variable
+    run: ruby -e 'puts ENV.fetch("SHARED_VALUE")'
+    env:
+      SHARED_VALUE: step
+      FEATURE_FLAG: enabled

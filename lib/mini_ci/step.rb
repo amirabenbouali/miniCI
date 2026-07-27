@@ -2,11 +2,12 @@
 
 module MiniCi
   class Step
-    attr_reader :name, :command
+    attr_reader :name, :command, :env
 
-    def initialize(name:, command:)
+    def initialize(name:, command:, env: {})
       @name = validate_text(name, "name")
       @command = validate_text(command, "command")
+      @env = env.dup.freeze
     end
 
     private

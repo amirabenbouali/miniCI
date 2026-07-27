@@ -5,12 +5,14 @@ module MiniCi
     def initialize(
       name:,
       steps:,
+      env: {},
       command_runner: CommandRunner.new,
       reporter: Reporter.new,
       clock: -> { Process.clock_gettime(Process::CLOCK_MONOTONIC) }
     )
       @name = validate_name(name)
       @steps = validate_steps(steps)
+      @env = env.dup.freeze
       @command_runner = command_runner
       @reporter = reporter
       @clock = clock
@@ -25,7 +27,7 @@ module MiniCi
       @steps.each_with_index do |step, index|
         @reporter.step_started(step, index: index + 1, total: @steps.length)
 
-        command_result = @command_runner.run(step.command)
+        command_result = @command_runner.run(step.command, env: @env.merge(step.env))
         step_result = StepResult.new(
           step: step,
           success: command_result.success?,

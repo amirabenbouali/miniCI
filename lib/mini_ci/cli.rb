@@ -17,7 +17,6 @@ module MiniCi
     USAGE_ERROR = 2
 
     HELP_COMMANDS = ["help", "--help", "-h"].freeze
-    FILE_COMMANDS = ["run", "validate", "list"].freeze
 
     def initialize(arguments:, output: $stdout, error_output: $stderr)
       @arguments = arguments
@@ -84,6 +83,7 @@ module MiniCi
       result = Pipeline.new(
         name: config.name,
         steps: config.steps,
+        env: config.env,
         reporter: Reporter.new(output: @output)
       ).run
 
@@ -98,6 +98,7 @@ module MiniCi
       @output.puts
       @output.puts "Name: #{config.name}"
       @output.puts "Steps: #{config.steps.length}"
+      @output.puts "Environment variables: #{config.env.length}"
       @output.puts "File: #{config_path}"
 
       SUCCESS
@@ -110,9 +111,12 @@ module MiniCi
       @output.puts config.name
       @output.puts
 
+      print_global_environment(config.env)
+
       config.steps.each_with_index do |step, index|
         @output.puts "#{index + 1}. #{step.name}"
         @output.puts "   #{step.command}"
+        print_step_environment(step.env)
         @output.puts
       end
 
@@ -142,6 +146,25 @@ module MiniCi
 
     def load_config(config_path)
       ConfigLoader.new(path: config_path).load
+    end
+
+    def print_global_environment(env)
+      return if env.empty?
+
+      @output.puts "Global environment:"
+      env.each do |name, value|
+        @output.puts "  #{name}=#{value}"
+      end
+      @output.puts
+    end
+
+    def print_step_environment(env)
+      return if env.empty?
+
+      @output.puts "   Environment:"
+      env.each do |name, value|
+        @output.puts "     #{name}=#{value}"
+      end
     end
 
     def usage_error(message)
