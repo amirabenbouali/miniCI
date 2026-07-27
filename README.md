@@ -4,7 +4,7 @@ Mini CI is a lightweight local CI/CD pipeline runner written primarily in Ruby. 
 
 ## Current Milestone
 
-Mini CI v0.8 supports:
+Mini CI v0.9 supports:
 
 - loading pipeline steps from `pipeline.yml`;
 - loading a custom pipeline configuration path;
@@ -12,6 +12,9 @@ Mini CI v0.8 supports:
 - setup hooks with `before_all`;
 - cleanup hooks with `after_all`;
 - guaranteed cleanup after setup or main-step failures;
+- conditional execution with `when` policies;
+- environment-variable `if` conditions;
+- structured skipped results and skipped counts;
 - pipeline-level and step-level environment variables;
 - step-level environment variables overriding global values;
 - optional per-step command timeouts;
@@ -21,10 +24,10 @@ Mini CI v0.8 supports:
 - recording each executed step result;
 - printing each step duration;
 - printing a final pipeline summary;
-- stopping setup or main execution after the first failed command;
+- continuing to evaluate later configured items after failures;
 - returning a non-zero application exit status when the pipeline fails.
 
-It does not yet support conditional step execution, parallel execution, secrets management, `.env` files, Docker, deployment logic, a web frontend, a database, or external APIs.
+It does not yet support matrix builds, parallel execution, secrets management, `.env` files, Docker, deployment logic, a web frontend, a database, or external APIs.
 
 ## Requirements
 
@@ -153,11 +156,68 @@ retry_delay: 0.5
 
 Failure behavior:
 
-- If a `before_all` hook fails after retries, Mini CI stops remaining setup hooks, skips all main steps, still runs every `after_all` hook, and marks the pipeline as failed.
-- If a main step fails after retries, Mini CI stops remaining main steps, still runs every `after_all` hook, and marks the pipeline as failed.
+- If a `before_all` hook fails after retries, later setup hooks and main steps are still evaluated. Default `when: success` items skip, while `when: failure` and `when: always` items can run.
+- If a main step fails after retries, later main steps are still evaluated. Default `when: success` items skip, while failure handlers and always-run items can continue.
 - If an `after_all` hook fails, Mini CI keeps running the remaining cleanup hooks and marks the pipeline as failed.
 - If normal work already failed, that remains the primary failure and cleanup failures are reported separately.
 - If normal work passed but cleanup failed, the cleanup failure becomes the primary failure.
+
+### Conditional Execution
+
+Steps and hooks can include an optional `when` policy:
+
+```yaml
+when: success
+when: failure
+when: always
+when: never
+```
+
+Defaults are phase-specific:
+
+- normal `steps` default to `when: success`;
+- `before_all` hooks default to `when: success`;
+- `after_all` hooks default to `when: always` so cleanup remains guaranteed unless explicitly configured otherwise.
+
+Policy meanings:
+
+- `success` runs only when no previous executed item has failed;
+- `failure` runs only after a previous executed item has failed;
+- `always` runs regardless of earlier success or failure;
+- `never` always skips the item.
+
+A successful failure-handler does not reset pipeline failure state. Once an executed item fails, later `when: success` items skip unless the pipeline is a new run.
+
+Items can also include an optional `if` expression:
+
+```yaml
+if: env.DEPLOY == "true"
+if: env.APP_ENV != "production"
+if: env.BRANCH == 'main'
+```
+
+The supported grammar is intentionally small:
+
+```text
+env.VARIABLE == "value"
+env.VARIABLE != "value"
+```
+
+Single-quoted values are also supported. Logical operators, parentheses, shell expansion, method calls, regular expressions, numeric comparison, and nested expressions are not supported.
+
+Condition environment precedence matches command execution:
+
+```text
+parent process environment
+pipeline-level environment
+step-level or hook-level environment
+```
+
+Missing variables behave as empty strings, so `env.MISSING == ""` is true and `env.MISSING != "production"` is also true.
+
+When both `when` and `if` are present, both must pass. Mini CI evaluates `when` first; if it fails, the `if` expression is not evaluated for that item.
+
+Conditions are parsed by Mini CI's small parser. They are not evaluated as Ruby, passed to `eval`, executed as shell code, or interpolated into commands.
 
 ### Custom Configuration Path
 
@@ -201,6 +261,8 @@ Mini CI validates the configuration before running any commands. It raises clear
 - `timeout` values that are zero, negative, or non-finite;
 - `retries` values that are negative, decimal numbers, strings, booleans, null, arrays, or mappings;
 - `retry_delay` values that are negative, strings, booleans, null, arrays, mappings, or non-finite.
+- `when` values other than `success`, `failure`, `always`, or `never`;
+- `if` values that are blank, non-strings, or outside the supported grammar.
 
 If the `name` field is omitted, Mini CI uses the default pipeline name `Mini CI`.
 
@@ -276,7 +338,7 @@ steps:
     timeout: 2.5
 ```
 
-When a step exceeds its timeout, Mini CI terminates the command, marks the step as failed, stops the pipeline, and reports skipped steps. Timeout values must be positive numbers; strings such as `"10"` are intentionally rejected.
+When a step exceeds its timeout, Mini CI terminates the command, marks the step as failed, and continues evaluating later configured items. Later default `when: success` items skip. Timeout values must be positive numbers; strings such as `"10"` are intentionally rejected.
 
 Mini CI starts each command in its own process group. On timeout, it sends `TERM` to the process group, waits briefly for graceful shutdown, then sends `KILL` if the command or its child processes are still running. This keeps commands such as `bash -c 'sleep 30 & wait'` from leaving child processes behind.
 
@@ -359,6 +421,7 @@ Before-all hooks: 0
 Steps: 2
 After-all hooks: 0
 Environment variables: 3
+Conditional items: 0
 File: pipeline.yml
 ```
 
@@ -416,6 +479,15 @@ After all:
      bash scripts/cleanup_workspace.sh
 ```
 
+Conditional settings are shown only when explicitly configured:
+
+```text
+2. Deploy
+   bash scripts/conditional_deploy.sh
+   When: success
+   If: env.DEPLOY == "true"
+```
+
 ## Run The Example Pipeline
 
 Run the example pipeline from the project root:
@@ -444,7 +516,7 @@ step
 Pipeline summary
 
 Status: PASSED
-Steps: 2 passed, 0 failed, 2 total
+Main steps: 2 passed, 0 failed, 0 skipped, 2 total
 Attempts: 2
 Duration: 0.09s
 ```
@@ -480,11 +552,13 @@ Step one passed
 Test failure
 ✗ Failed with exit code 1 in 1.42s
 
+[3/3] Skipped step
+– Skipped: requires previous success
+
 Pipeline summary
 
 Status: FAILED
-Steps: 1 passed, 1 failed, 3 configured
-Skipped main steps: 1
+Main steps: 1 passed, 1 failed, 1 skipped, 3 configured
 Attempts: 2
 Duration: 1.50s
 
@@ -527,8 +601,7 @@ starting slow step
 Pipeline summary
 
 Status: FAILED
-Steps: 1 passed, 1 failed, 3 configured
-Skipped main steps: 1
+Main steps: 1 passed, 1 failed, 1 skipped, 3 configured
 Attempts: 2
 Duration: 1.10s
 
@@ -565,7 +638,7 @@ pipeline continued after retry
 Pipeline summary
 
 Status: PASSED
-Steps: 3 passed, 0 failed, 3 total
+Main steps: 3 passed, 0 failed, 0 skipped, 3 total
 Retried steps: 1
 Attempts: 4
 Duration: 0.20s
@@ -586,8 +659,7 @@ Step failed after 3 attempts.
 Pipeline summary
 
 Status: FAILED
-Steps: 1 passed, 1 failed, 3 configured
-Skipped main steps: 1
+Main steps: 1 passed, 1 failed, 1 skipped, 3 configured
 Retried steps: 1
 Attempts: 4
 
@@ -613,7 +685,7 @@ bundle exec bin/mini-ci run examples/hooks-main-failure-pipeline.yml
 echo $?
 ```
 
-It exits with status `1`. The failing main step stops later main steps, but the cleanup hook still runs.
+It exits with status `1`. The failing main step causes later default-success main steps to skip, but the cleanup hook still runs.
 
 Run the cleanup-failure hook example:
 
@@ -623,6 +695,35 @@ echo $?
 ```
 
 It exits with status `1`. The first cleanup hook fails, the later cleanup hook still runs, and the summary includes cleanup failures.
+
+## Conditional Example Pipelines
+
+Run the success example:
+
+```bash
+bundle exec bin/mini-ci run examples/conditions-success-pipeline.yml
+echo $?
+```
+
+It exits with status `0`. It demonstrates a skipped `when: failure` item, a running `when: always` item, a true `if` condition, and a false `if` condition.
+
+Run the failure example:
+
+```bash
+bundle exec bin/mini-ci run examples/conditions-failure-pipeline.yml
+echo $?
+```
+
+It exits with status `1`. It demonstrates a failing normal step, skipped success-only work, a running failure diagnostic step, a running always step, and cleanup still running.
+
+Run the never example:
+
+```bash
+bundle exec bin/mini-ci run examples/conditions-never-pipeline.yml
+echo $?
+```
+
+It exits with status `0`. The disabled `when: never` item is reported as skipped and its command is not executed.
 
 ## Version And Help
 
@@ -635,7 +736,7 @@ bundle exec bin/mini-ci version
 Example output:
 
 ```text
-Mini CI 0.8.0
+Mini CI 0.9.0
 ```
 
 Show help:
@@ -662,9 +763,9 @@ The final summary reports:
 
 - `passed` — executed steps whose command exited with status `0`;
 - `failed` — executed steps whose command exited with a non-zero status;
-- `skipped` — configured steps that did not run because an earlier step failed.
+- `skipped` — configured items that did not run because `when` or `if` did not allow them.
 
-When all configured main steps run, the summary reports the configured count as `total`. When the pipeline stops early, it reports the configured count and includes a `Skipped main steps:` line. Setup and cleanup hooks are reported separately.
+When no main steps are skipped, the summary reports the configured count as `total`. When any main step is skipped, it reports the configured count as `configured`. Setup and cleanup hooks report passed, failed, and skipped counts separately.
 
 ## Exit Status
 
@@ -691,15 +792,15 @@ Run `mini-ci help` for usage information.
 ## Current Limitations
 
 - Steps run one at a time.
-- Setup and main pipeline work stop at the first failed command.
+- Later configured items are evaluated after failure, but only supported `when` and `if` rules are available.
 - Cleanup hooks still run after setup or main-step failures.
 - Cleanup hooks keep running after cleanup failures.
+- Conditions only compare environment variables to quoted string values.
 - No secrets management or secret masking.
 - No `.env` file support.
 - Timeout process-group termination is currently intended for Unix-like systems.
-- No conditional step execution yet.
 - No parallel execution, Docker, deployment, frontend, or database support.
 
 ## Next Milestone
 
-The next planned milestone adds conditional step execution.
+The next planned milestone adds matrix builds.

@@ -37,6 +37,11 @@ module MiniCi
       @output.puts
     end
 
+    def step_skipped(step_result)
+      @output.puts "– Skipped: #{skip_reason_message(step_result.skip_reason)}"
+      @output.puts
+    end
+
     def attempt_started(attempt_number, total:)
       @output.puts
       @output.puts "Attempt #{attempt_number}/#{total}"
@@ -64,7 +69,6 @@ module MiniCi
       @output.puts
       @output.puts "Status: #{pipeline_result.success? ? "PASSED" : "FAILED"}"
       @output.puts main_steps_summary_line(pipeline_result)
-      @output.puts "Skipped main steps: #{pipeline_result.skipped_main_step_count}" if pipeline_result.skipped_main_step_count.positive?
       @output.puts setup_summary_line(pipeline_result) if pipeline_result.configured_before_all_count.positive?
       @output.puts cleanup_summary_line(pipeline_result) if pipeline_result.configured_after_all_count.positive?
       @output.puts "Retried steps: #{pipeline_result.retried_step_count}" if pipeline_result.retried_step_count.positive?
@@ -77,22 +81,22 @@ module MiniCi
 
     def main_steps_summary_line(pipeline_result)
       if pipeline_result.skipped_main_step_count.positive?
-        "#{passed_failed_summary(pipeline_result)}, #{pipeline_result.configured_step_count} configured"
+        "#{passed_failed_skipped_summary(pipeline_result)}, #{pipeline_result.configured_step_count} configured"
       else
-        "#{passed_failed_summary(pipeline_result)}, #{pipeline_result.configured_step_count} total"
+        "#{passed_failed_skipped_summary(pipeline_result)}, #{pipeline_result.configured_step_count} total"
       end
     end
 
-    def passed_failed_summary(pipeline_result)
-      "Steps: #{pipeline_result.passed_count} passed, #{pipeline_result.failed_count} failed"
+    def passed_failed_skipped_summary(pipeline_result)
+      "Main steps: #{pipeline_result.passed_count} passed, #{pipeline_result.failed_count} failed, #{pipeline_result.skipped_count} skipped"
     end
 
     def setup_summary_line(pipeline_result)
-      "Setup hooks: #{pipeline_result.before_all_passed_count} passed, #{pipeline_result.before_all_failed_count} failed"
+      "Setup hooks: #{pipeline_result.before_all_passed_count} passed, #{pipeline_result.before_all_failed_count} failed, #{pipeline_result.before_all_skipped_count} skipped"
     end
 
     def cleanup_summary_line(pipeline_result)
-      "Cleanup hooks: #{pipeline_result.after_all_passed_count} passed, #{pipeline_result.after_all_failed_count} failed"
+      "Cleanup hooks: #{pipeline_result.after_all_passed_count} passed, #{pipeline_result.after_all_failed_count} failed, #{pipeline_result.after_all_skipped_count} skipped"
     end
 
     def format_duration(seconds)
@@ -123,6 +127,21 @@ module MiniCi
         "#{step_result.step.name} failed after #{step_result.attempt_count} attempts with exit code #{step_result.exit_status}"
       else
         "#{step_result.step.name} failed with exit code #{step_result.exit_status}"
+      end
+    end
+
+    def skip_reason_message(reason)
+      case reason
+      when :previous_failure
+        "requires previous success"
+      when :no_previous_failure
+        "requires previous failure"
+      when :when_never
+        "when is set to never"
+      when :if_condition_false
+        "condition was false"
+      else
+        "not selected"
       end
     end
   end

@@ -103,6 +103,7 @@ module MiniCi
       @output.puts "Steps: #{config.steps.length}"
       @output.puts "After-all hooks: #{config.after_all.length}"
       @output.puts "Environment variables: #{config.env.length}"
+      @output.puts "Conditional items: #{conditional_item_count(config)}"
       @output.puts "File: #{config_path}"
 
       SUCCESS
@@ -134,6 +135,8 @@ module MiniCi
         @output.puts "     Timeout: #{format_timeout(step.timeout)}" if step.timeout
         @output.puts "     Retries: #{step.retries}" if step.retries.positive?
         @output.puts "     Retry delay: #{format_duration(step.retry_delay)}" if step.retries.positive? && step.retry_delay.positive?
+        @output.puts "     When: #{step.when_policy}" if step.when_policy_explicit?
+        @output.puts "     If: #{step.condition.source}" if step.condition
         print_step_environment(step.env)
         @output.puts
       end
@@ -162,6 +165,12 @@ module MiniCi
 
     def load_config(config_path)
       ConfigLoader.new(path: config_path).load
+    end
+
+    def conditional_item_count(config)
+      (config.before_all + config.steps + config.after_all).count do |step|
+        step.when_policy_explicit? || step.condition
+      end
     end
 
     def print_global_environment(env)

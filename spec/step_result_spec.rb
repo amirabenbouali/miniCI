@@ -161,4 +161,33 @@ RSpec.describe MiniCi::StepResult do
       described_class.new(step: step, success: true, exit_status: 0, duration: 0.1, category: :deploy)
     end.to raise_error(ArgumentError, "Step result category must be :before_all, :step, or :after_all")
   end
+
+  it "stores skipped state and reason" do
+    result = described_class.new(step: step, skipped: true, skip_reason: :when_never, duration: 0)
+
+    expect(result).to be_skipped
+    expect(result).not_to be_executed
+    expect(result.skip_reason).to eq(:when_never)
+  end
+
+  it "has no attempts or exit status when skipped" do
+    result = described_class.new(step: step, skipped: true, skip_reason: :if_condition_false, duration: 0)
+
+    expect(result.attempts).to eq([])
+    expect(result.exit_status).to be_nil
+    expect(result.attempt_count).to eq(0)
+  end
+
+  it "treats skipped results as neither passed nor failed" do
+    result = described_class.new(step: step, skipped: true, skip_reason: :previous_failure, duration: 0)
+
+    expect(result).not_to be_success
+    expect(result).not_to be_failed
+  end
+
+  it "rejects invalid skip reasons" do
+    expect do
+      described_class.new(step: step, skipped: true, skip_reason: :unknown, duration: 0)
+    end.to raise_error(ArgumentError, "Skipped step result requires a valid skip reason")
+  end
 end

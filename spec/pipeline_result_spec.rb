@@ -24,6 +24,16 @@ RSpec.describe MiniCi::PipelineResult do
     )
   end
 
+  def skipped_result(name:, category: :step, skip_reason: :previous_failure)
+    MiniCi::StepResult.new(
+      step: step(name),
+      skipped: true,
+      skip_reason: skip_reason,
+      duration: 0,
+      category: category
+    )
+  end
+
   def retried_step_result
     MiniCi::StepResult.new(
       step: step("Retried"),
@@ -49,7 +59,8 @@ RSpec.describe MiniCi::PipelineResult do
       configured_step_count: 2,
       step_results: [
         step_result(name: "One", success: true, exit_status: 0),
-        step_result(name: "Two", success: false, exit_status: 1)
+        step_result(name: "Two", success: false, exit_status: 1),
+        skipped_result(name: "Three")
       ]
     )
 
@@ -61,7 +72,8 @@ RSpec.describe MiniCi::PipelineResult do
       configured_step_count: 2,
       step_results: [
         step_result(name: "One", success: true, exit_status: 0),
-        step_result(name: "Two", success: false, exit_status: 1)
+        step_result(name: "Two", success: false, exit_status: 1),
+        skipped_result(name: "Three")
       ]
     )
 
@@ -73,7 +85,8 @@ RSpec.describe MiniCi::PipelineResult do
       configured_step_count: 3,
       step_results: [
         step_result(name: "One", success: true, exit_status: 0),
-        step_result(name: "Two", success: false, exit_status: 1)
+        step_result(name: "Two", success: false, exit_status: 1),
+        skipped_result(name: "Three")
       ]
     )
 
@@ -85,7 +98,8 @@ RSpec.describe MiniCi::PipelineResult do
       configured_step_count: 3,
       step_results: [
         step_result(name: "One", success: true, exit_status: 0),
-        step_result(name: "Two", success: false, exit_status: 1)
+        step_result(name: "Two", success: false, exit_status: 1),
+        skipped_result(name: "Three")
       ]
     )
 
@@ -215,7 +229,7 @@ RSpec.describe MiniCi::PipelineResult do
       configured_before_all_count: 1,
       configured_step_count: 1,
       before_all_results: [categorized_result(name: "Setup", success: false, exit_status: 1, category: :before_all)],
-      step_results: [],
+      step_results: [skipped_result(name: "Main")],
       total_duration: 0.3
     )
 
@@ -248,7 +262,10 @@ RSpec.describe MiniCi::PipelineResult do
         categorized_result(name: "Setup pass", success: true, exit_status: 0, category: :before_all),
         categorized_result(name: "Setup fail", success: false, exit_status: 1, category: :before_all)
       ],
-      step_results: [],
+      step_results: [
+        skipped_result(name: "Main one"),
+        skipped_result(name: "Main two")
+      ],
       after_all_results: [
         categorized_result(name: "Cleanup pass", success: true, exit_status: 0, category: :after_all),
         categorized_result(name: "Cleanup fail", success: false, exit_status: 2, category: :after_all)

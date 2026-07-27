@@ -456,6 +456,201 @@ RSpec.describe MiniCi::ConfigLoader do
       FileUtils.remove_entry(directory)
     end
 
+    it "defaults normal steps to run on success" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo step
+      YAML
+
+      expect(loader_for(path).load.steps.first.when_policy).to eq(:success)
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "defaults before_all hooks to run on success" do
+      path, directory = write_config(<<~YAML)
+        before_all:
+          - name: Prepare
+            run: echo prepare
+        steps:
+          - name: Step
+            run: echo step
+      YAML
+
+      expect(loader_for(path).load.before_all.first.when_policy).to eq(:success)
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "defaults after_all hooks to always run" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo step
+        after_all:
+          - name: Cleanup
+            run: echo cleanup
+      YAML
+
+      expect(loader_for(path).load.after_all.first.when_policy).to eq(:always)
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "loads valid when policies" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Failure step
+            run: echo failure
+            when: failure
+          - name: Always step
+            run: echo always
+            when: always
+          - name: Never step
+            run: echo never
+            when: never
+      YAML
+
+      expect(loader_for(path).load.steps.map(&:when_policy)).to eq([:failure, :always, :never])
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "marks explicit when policies" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Explicit
+            run: echo explicit
+            when: success
+      YAML
+
+      expect(loader_for(path).load.steps.first).to be_when_policy_explicit
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "parses valid if expressions" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Conditional
+            run: echo conditional
+            if: env.DEPLOY == "true"
+      YAML
+
+      condition = loader_for(path).load.steps.first.condition
+
+      expect(condition.variable_name).to eq("DEPLOY")
+      expect(condition.operator).to eq("==")
+      expect(condition.expected_value).to eq("true")
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects invalid when policies with phase and index" do
+      path, directory = write_config(<<~YAML)
+        before_all:
+          - name: Prepare
+            run: echo prepare
+            when: sometimes
+        steps:
+          - name: Step
+            run: echo step
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, 'Invalid pipeline configuration: before_all hook 1 has invalid when value "sometimes"')
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects non-string when policies" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo step
+        after_all:
+          - name: Cleanup
+            run: echo cleanup
+            when: true
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: after_all hook 1 when must be a string")
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects empty if expressions" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Conditional
+            run: echo conditional
+            if: ""
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 if expression is empty")
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects malformed if expressions" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Conditional
+            run: echo conditional
+            if: env.DEPLOY
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, /Invalid pipeline configuration: step 1 has unsupported if expression/)
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects invalid if variable names" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Conditional
+            run: echo conditional
+            if: env.BAD-NAME == "true"
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, /Invalid pipeline configuration: step 1 has unsupported if expression/)
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects invalid if operators" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Conditional
+            run: echo conditional
+            if: env.DEPLOY = "true"
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, /Supported format/)
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects unsupported logical if expressions" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Conditional
+            run: echo conditional
+            if: env.A == "x" && env.B == "y"
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, /Supported format/)
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
     it "raises when the configuration file is missing" do
       directory = Dir.mktmpdir
 

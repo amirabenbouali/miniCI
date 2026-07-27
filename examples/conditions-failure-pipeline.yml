@@ -1,0 +1,25 @@
+name: Conditions Failure Example
+
+before_all:
+  - name: Prepare workspace
+    run: bash scripts/prepare_workspace.sh
+
+steps:
+  - name: Failing tests
+    run: ruby -e 'puts "tests failed"; exit 1'
+
+  - name: Success-only deploy
+    run: echo "this should be skipped"
+    when: success
+
+  - name: Collect diagnostics
+    run: bash scripts/collect_diagnostics.sh
+    when: failure
+
+  - name: Final report
+    run: ruby -e 'puts "final report"'
+    when: always
+
+after_all:
+  - name: Clean workspace
+    run: bash scripts/cleanup_workspace.sh

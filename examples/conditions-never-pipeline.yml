@@ -1,0 +1,12 @@
+name: Conditions Never Example
+
+steps:
+  - name: Build
+    run: ruby -e 'puts "building"'
+
+  - name: Disabled experiment
+    run: ruby -e 'puts "disabled item should not execute"'
+    when: never
+
+  - name: Continue after disabled item
+    run: ruby -e 'puts "continued"'

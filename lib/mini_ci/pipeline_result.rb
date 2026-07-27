@@ -33,7 +33,7 @@ module MiniCi
     end
 
     def success?
-      all_results.all?(&:success?) &&
+      all_results.none?(&:failed?) &&
         before_all_results.length == configured_before_all_count &&
         step_results.length == configured_step_count &&
         after_all_results.length == configured_after_all_count
@@ -52,11 +52,11 @@ module MiniCi
     end
 
     def executed_count
-      step_results.length
+      step_results.count(&:executed?)
     end
 
     def skipped_count
-      skipped_main_step_count
+      step_results.count(&:skipped?)
     end
 
     def failure_result
@@ -68,7 +68,7 @@ module MiniCi
     end
 
     def retried_step_count
-      all_results.count(&:retried?)
+      all_results.count { |result| result.executed? && result.retried? }
     end
 
     def all_results
@@ -97,6 +97,10 @@ module MiniCi
       before_all_results.count(&:failed?)
     end
 
+    def before_all_skipped_count
+      before_all_results.count(&:skipped?)
+    end
+
     def after_all_passed_count
       after_all_results.count(&:success?)
     end
@@ -105,8 +109,16 @@ module MiniCi
       after_all_results.count(&:failed?)
     end
 
+    def after_all_skipped_count
+      after_all_results.count(&:skipped?)
+    end
+
     def skipped_main_step_count
-      configured_step_count - step_results.length
+      step_results.count(&:skipped?)
+    end
+
+    def passed_failed_skipped_count
+      [passed_count, failed_count, skipped_count]
     end
   end
 end

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "fileutils"
+require "tmpdir"
 require "mini_ci"
 
 RSpec.configure do |config|

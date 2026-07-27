@@ -312,6 +312,43 @@ RSpec.describe MiniCi::CLI do
     ensure
       FileUtils.remove_entry(directory) if directory
     end
+
+    it "accepts valid conditions" do
+      path, directory = write_temp_config(<<~YAML)
+        name: Conditional Validate
+        steps:
+          - name: Deploy
+            run: echo deploy
+            when: always
+            if: env.DEPLOY == "true"
+      YAML
+
+      exit_code, stdout, stderr = run_cli(["validate", path])
+
+      expect(exit_code).to eq(0)
+      expect(stdout).to include("Conditional items: 1")
+      expect(stderr).to be_empty
+    ensure
+      FileUtils.remove_entry(directory) if directory
+    end
+
+    it "rejects malformed conditions" do
+      path, directory = write_temp_config(<<~YAML)
+        name: Conditional Validate
+        steps:
+          - name: Deploy
+            run: echo deploy
+            if: env.DEPLOY
+      YAML
+
+      exit_code, stdout, stderr = run_cli(["validate", path])
+
+      expect(exit_code).to eq(2)
+      expect(stdout).to be_empty
+      expect(stderr).to include("unsupported if expression")
+    ensure
+      FileUtils.remove_entry(directory) if directory
+    end
   end
 
   describe "list" do
@@ -376,6 +413,15 @@ RSpec.describe MiniCi::CLI do
       expect(stderr).to be_empty
     end
 
+    it "displays explicit conditional settings" do
+      exit_code, stdout, stderr = run_cli(["list", "examples/conditions-success-pipeline.yml"])
+
+      expect(exit_code).to eq(0)
+      expect(stdout).to include("When: failure")
+      expect(stdout).to include('If: env.DEPLOY == "true"')
+      expect(stderr).to be_empty
+    end
+
     it "accepts a custom configuration file" do
       path, directory = write_temp_config(<<~YAML)
         name: Custom List
@@ -430,7 +476,8 @@ RSpec.describe MiniCi::CLI do
 
       expect(exit_code).to eq(1)
       expect(stdout).to include("Status: FAILED")
-      expect(stdout).to include("Skipped main steps: 1")
+      expect(stdout).to include("1 skipped")
+      expect(stdout).to include("Skipped: requires previous success")
     end
 
     it "accepts a custom configuration file" do
@@ -476,8 +523,9 @@ RSpec.describe MiniCi::CLI do
 
       expect(exit_code).to eq(1)
       expect(stdout.downcase).to include("timed out")
-      expect(stdout).to include("Skipped main steps: 1")
-      expect(stdout).not_to include("Never reached")
+      expect(stdout).to include("1 skipped")
+      expect(stdout).to include("Skipped: requires previous success")
+      expect(stdout).not_to include("this should be skipped")
     end
 
     it "returns 0 for a retry-success pipeline" do
@@ -517,7 +565,8 @@ RSpec.describe MiniCi::CLI do
       expect(stdout).to include("Failing main step")
       expect(stdout).to include("Clean workspace")
       expect(stdout).not_to include("This should not run")
-      expect(stdout).to include("Skipped main steps: 1")
+      expect(stdout).to include("1 skipped")
+      expect(stdout).to include("Skipped: requires previous success")
     end
 
     it "returns 1 for the cleanup-failure hook example and keeps cleaning up" do
@@ -527,6 +576,42 @@ RSpec.describe MiniCi::CLI do
       expect(stdout).to include("Failing cleanup hook")
       expect(stdout).to include("Cleanup still runs")
       expect(stdout).to include("Cleanup failures:")
+    end
+
+    it "returns 0 for the successful conditional example" do
+      exit_code, stdout, stderr = run_cli(["run", "examples/conditions-success-pipeline.yml"])
+
+      expect(exit_code).to eq(0)
+      expect(stdout).to include("Failure-only diagnostics")
+      expect(stdout).to include("Skipped: requires previous failure")
+      expect(stdout).to include("Conditional deploy")
+      expect(stdout).to include("3 passed")
+      expect(stdout).to include("Optional check")
+      expect(stdout).to include("Skipped: condition was false")
+      expect(stdout).to include("Status: PASSED")
+      expect(stderr).to be_empty
+    end
+
+    it "returns 1 for the failing conditional example" do
+      exit_code, stdout, = run_cli(["run", "examples/conditions-failure-pipeline.yml"])
+
+      expect(exit_code).to eq(1)
+      expect(stdout).to include("Success-only deploy")
+      expect(stdout).to include("Skipped: requires previous success")
+      expect(stdout).to include("Collect diagnostics")
+      expect(stdout).to include("Final report")
+      expect(stdout).to include("Clean workspace")
+      expect(stdout).to include("Status: FAILED")
+    end
+
+    it "skips never items in the never example" do
+      exit_code, stdout, stderr = run_cli(["run", "examples/conditions-never-pipeline.yml"])
+
+      expect(exit_code).to eq(0)
+      expect(stdout).to include("Disabled experiment")
+      expect(stdout).to include("Skipped: when is set to never")
+      expect(stdout).not_to include("disabled item should not execute")
+      expect(stderr).to be_empty
     end
   end
 

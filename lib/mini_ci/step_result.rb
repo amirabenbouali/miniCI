@@ -4,11 +4,15 @@ require_relative "attempt_result"
 
 module MiniCi
   class StepResult
-    attr_reader :step, :attempts, :duration, :started_at, :finished_at, :category
+    attr_reader :step, :attempts, :duration, :started_at, :finished_at, :category, :skip_reason
 
-    def initialize(step:, attempts: nil, success: nil, exit_status: nil, duration: nil, timed_out: false, timeout: nil, started_at: nil, finished_at: nil, category: :step)
+    def initialize(step:, attempts: nil, success: nil, exit_status: nil, duration: nil, timed_out: false, timeout: nil, started_at: nil, finished_at: nil, category: :step, skipped: false, skip_reason: nil)
       @step = step
-      @attempts = (attempts || [
+      @skip_reason = skip_reason
+      @attempts = if skipped
+                    []
+                  else
+                    (attempts || [
         AttemptResult.new(
           attempt_number: 1,
           success: success,
@@ -17,31 +21,43 @@ module MiniCi
           timed_out: timed_out,
           timeout: timeout
         )
-      ]).dup.freeze
+      ])
+                  end.dup.freeze
       @duration = duration || attempts_total_duration
       @started_at = started_at
       @finished_at = finished_at
       @category = validate_category(category)
+      validate_skip_reason if skipped
       freeze
     end
 
     def success?
+      return false if skipped?
+
       final_attempt.success?
     end
 
     def failed?
+      return false if skipped?
+
       !success?
     end
 
     def timed_out?
+      return false if skipped?
+
       final_attempt.timed_out?
     end
 
     def exit_status
+      return nil if skipped?
+
       final_attempt.exit_status
     end
 
     def timeout
+      return nil if skipped?
+
       final_attempt.timeout
     end
 
@@ -55,6 +71,18 @@ module MiniCi
 
     def retried?
       attempt_count > 1
+    end
+
+    def skipped?
+      !skip_reason.nil?
+    end
+
+    def executed?
+      !skipped?
+    end
+
+    def item
+      step
     end
 
     def total_duration
@@ -79,6 +107,12 @@ module MiniCi
       return category if [:before_all, :step, :after_all].include?(category)
 
       raise ArgumentError, "Step result category must be :before_all, :step, or :after_all"
+    end
+
+    def validate_skip_reason
+      return if [:previous_failure, :no_previous_failure, :when_never, :if_condition_false].include?(skip_reason)
+
+      raise ArgumentError, "Skipped step result requires a valid skip reason"
     end
 
     def attempts_total_duration

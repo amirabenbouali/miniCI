@@ -34,6 +34,8 @@ RSpec.describe MiniCi::Pipeline do
 
     def step_failed(_step_result); end
 
+    def step_skipped(_step_result); end
+
     def summary(_pipeline_result); end
 
     def attempt_started(_attempt_number, total:); end
@@ -70,6 +72,10 @@ RSpec.describe MiniCi::Pipeline do
 
   def fake_result(success:, exit_status:, duration: 0.1, timed_out: false, timeout: nil)
     FakeCommandResult.new(success?: success, exit_status: exit_status, duration: duration, timed_out?: timed_out, timeout: timeout)
+  end
+
+  def condition(expression)
+    MiniCi::ConditionParser.new.parse(expression)
   end
 
   def fixed_clock
@@ -135,8 +141,7 @@ RSpec.describe MiniCi::Pipeline do
   it "stops after the first failed step" do
     runner = FakeCommandRunner.new([
                                      fake_result(success: true, exit_status: 0),
-                                     fake_result(success: false, exit_status: 1),
-                                     fake_result(success: true, exit_status: 0)
+                                     fake_result(success: false, exit_status: 1)
                                    ])
 
     described_class.new(
@@ -173,11 +178,10 @@ RSpec.describe MiniCi::Pipeline do
 
   it "does not execute steps after a failure" do
     runner = FakeCommandRunner.new([
-                                     fake_result(success: false, exit_status: 1),
-                                     fake_result(success: true, exit_status: 0)
+                                     fake_result(success: false, exit_status: 1)
                                    ])
 
-    described_class.new(
+    result = described_class.new(
       name: "Test Pipeline",
       steps: [
         step("Fail", "exit 1"),
@@ -189,13 +193,13 @@ RSpec.describe MiniCi::Pipeline do
     ).run
 
     expect(runner.commands).not_to include("echo skipped")
+    expect(result.step_results.last).to be_skipped
   end
 
   it "calculates skipped steps correctly" do
     runner = FakeCommandRunner.new([
                                      fake_result(success: true, exit_status: 0),
-                                     fake_result(success: false, exit_status: 1),
-                                     fake_result(success: true, exit_status: 0)
+                                     fake_result(success: false, exit_status: 1)
                                    ])
 
     result = described_class.new(
@@ -735,5 +739,224 @@ RSpec.describe MiniCi::Pipeline do
                                 { "GLOBAL" => "yes", "PHASE" => "setup" },
                                 { "GLOBAL" => "yes" }
                               ])
+  end
+
+  it "skips default steps after failure but keeps evaluating later items" do
+    runner = FakeCommandRunner.new([
+                                     fake_result(success: false, exit_status: 1),
+                                     fake_result(success: true, exit_status: 0)
+                                   ])
+
+    result = described_class.new(
+      name: "Conditions",
+      steps: [
+        step("Fail", "fail"),
+        step("Skip default", "skip-default"),
+        MiniCi::Step.new(name: "Always", command: "always", when_policy: :always, when_policy_explicit: true)
+      ],
+      command_runner: runner,
+      reporter: NullReporter.new,
+      clock: fixed_clock
+    ).run
+
+    expect(runner.commands).to eq(["fail", "always"])
+    expect(result.step_results[1]).to be_skipped
+    expect(result.step_results[1].skip_reason).to eq(:previous_failure)
+  end
+
+  it "runs failure steps only after failure" do
+    runner = FakeCommandRunner.new([
+                                     fake_result(success: false, exit_status: 1),
+                                     fake_result(success: true, exit_status: 0)
+                                   ])
+
+    result = described_class.new(
+      name: "Conditions",
+      steps: [
+        MiniCi::Step.new(name: "Before failure", command: "before", when_policy: :failure, when_policy_explicit: true),
+        step("Fail", "fail"),
+        MiniCi::Step.new(name: "After failure", command: "after", when_policy: :failure, when_policy_explicit: true)
+      ],
+      command_runner: runner,
+      reporter: NullReporter.new,
+      clock: fixed_clock
+    ).run
+
+    expect(runner.commands).to eq(["fail", "after"])
+    expect(result.step_results.first.skip_reason).to eq(:no_previous_failure)
+  end
+
+  it "never runs never steps" do
+    runner = FakeCommandRunner.new([
+                                     fake_result(success: true, exit_status: 0)
+                                   ])
+
+    result = described_class.new(
+      name: "Conditions",
+      steps: [
+        MiniCi::Step.new(name: "Never", command: "never", when_policy: :never, when_policy_explicit: true),
+        step("Run", "run")
+      ],
+      command_runner: runner,
+      reporter: NullReporter.new,
+      clock: fixed_clock
+    ).run
+
+    expect(runner.commands).to eq(["run"])
+    expect(result.step_results.first.skip_reason).to eq(:when_never)
+  end
+
+  it "runs true if conditions and skips false if conditions" do
+    runner = FakeCommandRunner.new([
+                                     fake_result(success: true, exit_status: 0)
+                                   ])
+
+    result = described_class.new(
+      name: "Conditions",
+      steps: [
+        MiniCi::Step.new(name: "Deploy", command: "deploy", condition: condition('env.DEPLOY == "true"')),
+        MiniCi::Step.new(name: "Optional", command: "optional", condition: condition('env.OPTIONAL == "true"'))
+      ],
+      env: { "DEPLOY" => "true", "OPTIONAL" => "false" },
+      command_runner: runner,
+      reporter: NullReporter.new,
+      clock: fixed_clock
+    ).run
+
+    expect(runner.commands).to eq(["deploy"])
+    expect(result.step_results.last.skip_reason).to eq(:if_condition_false)
+  end
+
+  it "requires both when and if conditions to pass" do
+    runner = FakeCommandRunner.new([
+                                     fake_result(success: false, exit_status: 1)
+                                   ])
+
+    result = described_class.new(
+      name: "Conditions",
+      steps: [
+        step("Fail", "fail"),
+        MiniCi::Step.new(
+          name: "Deploy",
+          command: "deploy",
+          when_policy: :success,
+          when_policy_explicit: true,
+          condition: condition('env.DEPLOY == "true"')
+        )
+      ],
+      env: { "DEPLOY" => "true" },
+      command_runner: runner,
+      reporter: NullReporter.new,
+      clock: fixed_clock
+    ).run
+
+    expect(runner.commands).to eq(["fail"])
+    expect(result.step_results.last.skip_reason).to eq(:previous_failure)
+  end
+
+  it "does not reset failed state after a successful failure handler" do
+    runner = FakeCommandRunner.new([
+                                     fake_result(success: false, exit_status: 1),
+                                     fake_result(success: true, exit_status: 0)
+                                   ])
+
+    result = described_class.new(
+      name: "Conditions",
+      steps: [
+        step("Fail", "fail"),
+        MiniCi::Step.new(name: "Handle failure", command: "handle", when_policy: :failure, when_policy_explicit: true),
+        step("Default after handler", "default")
+      ],
+      command_runner: runner,
+      reporter: NullReporter.new,
+      clock: fixed_clock
+    ).run
+
+    expect(runner.commands).to eq(["fail", "handle"])
+    expect(result.step_results.last.skip_reason).to eq(:previous_failure)
+  end
+
+  it "uses step environment when evaluating conditions" do
+    runner = FakeCommandRunner.new([
+                                     fake_result(success: true, exit_status: 0)
+                                   ])
+
+    described_class.new(
+      name: "Conditions",
+      steps: [
+        MiniCi::Step.new(
+          name: "Deploy",
+          command: "deploy",
+          env: { "DEPLOY" => "true" },
+          condition: condition('env.DEPLOY == "true"')
+        )
+      ],
+      env: { "DEPLOY" => "false" },
+      command_runner: runner,
+      reporter: NullReporter.new,
+      clock: fixed_clock
+    ).run
+
+    expect(runner.commands).to eq(["deploy"])
+  end
+
+  it "defaults cleanup hooks to always run" do
+    runner = FakeCommandRunner.new([
+                                     fake_result(success: false, exit_status: 1),
+                                     fake_result(success: true, exit_status: 0)
+                                   ])
+
+    described_class.new(
+      name: "Conditions",
+      steps: [step("Fail", "fail")],
+      after_all: [step("Cleanup", "cleanup")],
+      command_runner: runner,
+      reporter: NullReporter.new,
+      clock: fixed_clock
+    ).run
+
+    expect(runner.commands).to eq(["fail", "cleanup"])
+  end
+
+  it "honors explicit cleanup conditions" do
+    runner = FakeCommandRunner.new([
+                                     fake_result(success: true, exit_status: 0)
+                                   ])
+
+    result = described_class.new(
+      name: "Conditions",
+      steps: [step("Main", "main")],
+      after_all: [
+        MiniCi::Step.new(name: "Failure cleanup", command: "cleanup", when_policy: :failure, when_policy_explicit: true)
+      ],
+      command_runner: runner,
+      reporter: NullReporter.new,
+      clock: fixed_clock
+    ).run
+
+    expect(runner.commands).to eq(["main"])
+    expect(result.after_all_results.first.skip_reason).to eq(:no_previous_failure)
+  end
+
+  it "does not sleep for skipped retryable steps" do
+    sleeper = FakeSleeper.new
+    runner = FakeCommandRunner.new([
+                                     fake_result(success: true, exit_status: 0)
+                                   ])
+
+    described_class.new(
+      name: "Conditions",
+      steps: [
+        MiniCi::Step.new(name: "Never", command: "never", when_policy: :never, when_policy_explicit: true, retries: 2, retry_delay: 1),
+        step("Run", "run")
+      ],
+      command_runner: runner,
+      reporter: NullReporter.new,
+      sleeper: sleeper,
+      clock: fixed_clock
+    ).run
+
+    expect(runner.commands).to eq(["run"])
+    expect(sleeper.delays).to eq([])
   end
 end

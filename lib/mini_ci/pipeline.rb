@@ -31,24 +31,31 @@ module MiniCi
       before_all_results = []
       step_results = []
       after_all_results = []
+      pipeline_failed = false
 
-      run_interruptible_phase(
+      pipeline_failed = run_phase(
         @before_all,
         category: :before_all,
         heading: "Setup",
-        results: before_all_results
+        results: before_all_results,
+        pipeline_failed: pipeline_failed
       )
 
-      if before_all_results.none?(&:failed?)
-        run_interruptible_phase(
-          @steps,
-          category: :step,
-          heading: "Pipeline",
-          results: step_results
-        )
-      end
+      pipeline_failed = run_phase(
+        @steps,
+        category: :step,
+        heading: "Pipeline",
+        results: step_results,
+        pipeline_failed: pipeline_failed
+      )
 
-      run_cleanup_phase(after_all_results)
+      run_phase(
+        @after_all,
+        category: :after_all,
+        heading: "Cleanup",
+        results: after_all_results,
+        pipeline_failed: pipeline_failed
+      )
 
       pipeline_result = PipelineResult.new(
         name: @name,
@@ -67,30 +74,36 @@ module MiniCi
 
     private
 
-    def run_interruptible_phase(items, category:, heading:, results:)
-      return if items.empty?
+    def run_phase(items, category:, heading:, results:, pipeline_failed:)
+      return pipeline_failed if items.empty?
 
       @reporter.phase_started(heading)
 
       items.each_with_index do |step, index|
-        step_result = execute_item(step, category: category, index: index + 1, total: items.length)
+        step_result = execute_item(
+          step,
+          category: category,
+          index: index + 1,
+          total: items.length,
+          pipeline_failed: pipeline_failed
+        )
         results << step_result
-        break if step_result.failed?
+        pipeline_failed = true if step_result.failed?
       end
+
+      pipeline_failed
     end
 
-    def run_cleanup_phase(results)
-      return if @after_all.empty?
-
-      @reporter.phase_started("Cleanup")
-
-      @after_all.each_with_index do |step, index|
-        results << execute_item(step, category: :after_all, index: index + 1, total: @after_all.length)
-      end
-    end
-
-    def execute_item(step, category:, index:, total:)
+    def execute_item(step, category:, index:, total:, pipeline_failed:)
       @reporter.step_started(step, index: index, total: total)
+      skip_reason = skip_reason_for(step, category: category, pipeline_failed: pipeline_failed)
+
+      if skip_reason
+        step_result = skipped_step_result(step, category: category, skip_reason: skip_reason)
+        @reporter.step_skipped(step_result)
+        return step_result
+      end
+
       step_result = run_step(step, category: category)
 
       if step_result.success?
@@ -100,6 +113,50 @@ module MiniCi
       end
 
       step_result
+    end
+
+    def skip_reason_for(step, category:, pipeline_failed:)
+      policy = effective_when_policy(step, category)
+
+      case policy
+      when :never
+        :when_never
+      when :success
+        :previous_failure if pipeline_failed
+      when :failure
+        :no_previous_failure unless pipeline_failed
+      when :always
+        nil
+      end || condition_skip_reason(step)
+    end
+
+    def condition_skip_reason(step)
+      return nil unless step.condition
+
+      effective_environment = condition_environment_for(step)
+      return nil if step.condition.evaluate(effective_environment)
+
+      :if_condition_false
+    end
+
+    def effective_when_policy(step, category)
+      return :always if category == :after_all && !step.when_policy_explicit?
+
+      step.when_policy
+    end
+
+    def condition_environment_for(step)
+      ENV.to_h.merge(@env).merge(step.env)
+    end
+
+    def skipped_step_result(step, category:, skip_reason:)
+      StepResult.new(
+        step: step,
+        skipped: true,
+        skip_reason: skip_reason,
+        duration: 0,
+        category: category
+      )
     end
 
     def run_step(step, category:)

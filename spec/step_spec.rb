@@ -97,4 +97,41 @@ RSpec.describe MiniCi::Step do
       described_class.new(name: "Check Ruby version", command: "")
     end.to raise_error(ArgumentError, "Step command must be a non-empty string")
   end
+
+  it "defaults to the success policy" do
+    step = described_class.new(name: "Example", command: "echo hi")
+
+    expect(step.when_policy).to eq(:success)
+    expect(step).to be_run_on_success
+  end
+
+  it "stores explicit policies" do
+    step = described_class.new(name: "Example", command: "echo hi", when_policy: :failure, when_policy_explicit: true)
+
+    expect(step.when_policy).to eq(:failure)
+    expect(step).to be_run_on_failure
+    expect(step).to be_when_policy_explicit
+  end
+
+  it "reports always and never helpers" do
+    always_step = described_class.new(name: "Always", command: "echo hi", when_policy: :always)
+    never_step = described_class.new(name: "Never", command: "echo hi", when_policy: :never)
+
+    expect(always_step).to be_always
+    expect(never_step).to be_never
+  end
+
+  it "stores a condition" do
+    condition = MiniCi::ConditionParser.new.parse('env.DEPLOY == "true"')
+    step = described_class.new(name: "Example", command: "echo hi", condition: condition)
+
+    expect(step.condition).to eq(condition)
+    expect(step).to be_conditional
+  end
+
+  it "rejects invalid policies" do
+    expect do
+      described_class.new(name: "Example", command: "echo hi", when_policy: :sometimes)
+    end.to raise_error(ArgumentError, "Step when_policy must be one of success, failure, always, never")
+  end
 end

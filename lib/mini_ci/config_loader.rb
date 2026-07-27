@@ -2,11 +2,14 @@
 
 require "yaml"
 
+require_relative "condition_parser"
+
 module MiniCi
   class ConfigLoader
     DEFAULT_CONFIG_FILE = "pipeline.yml"
     DEFAULT_PIPELINE_NAME = "Mini CI"
     ENV_NAME_PATTERN = /\A[A-Za-z_][A-Za-z0-9_]*\z/
+    VALID_WHEN_POLICIES = ["success", "failure", "always", "never"].freeze
 
     Configuration = Struct.new(:name, :before_all, :steps, :after_all, :env, keyword_init: true)
 
@@ -79,7 +82,7 @@ module MiniCi
       end
 
       steps_data.each_with_index.map do |step_data, index|
-        build_step(step_data, "step #{index + 1}")
+        build_step(step_data, "step #{index + 1}", default_when_policy: :success)
       end
     end
 
@@ -91,11 +94,12 @@ module MiniCi
       end
 
       hooks_data.each_with_index.map do |hook_data, index|
-        build_step(hook_data, "#{key} hook #{index + 1}")
+        default_when_policy = key == "after_all" ? :always : :success
+        build_step(hook_data, "#{key} hook #{index + 1}", default_when_policy: default_when_policy)
       end
     end
 
-    def build_step(step_data, label)
+    def build_step(step_data, label, default_when_policy:)
       unless step_data.is_a?(Hash)
         raise ConfigurationError, "Invalid pipeline configuration: #{label} must be a mapping"
       end
@@ -114,6 +118,8 @@ module MiniCi
       timeout = build_timeout(step_data["timeout"], label) if step_data.key?("timeout")
       retries = build_retries(step_data["retries"], label) if step_data.key?("retries")
       retry_delay = build_retry_delay(step_data["retry_delay"], label) if step_data.key?("retry_delay")
+      when_policy, when_policy_explicit = build_when_policy(step_data, label, default_when_policy)
+      condition = build_condition(step_data["if"], label) if step_data.key?("if")
 
       unless name.is_a?(String) && !name.strip.empty?
         raise ConfigurationError, "Invalid pipeline configuration: #{label} has a blank name"
@@ -129,8 +135,41 @@ module MiniCi
         env: env,
         timeout: timeout,
         retries: retries || 0,
-        retry_delay: retry_delay || 0
+        retry_delay: retry_delay || 0,
+        when_policy: when_policy,
+        condition: condition,
+        when_policy_explicit: when_policy_explicit
       )
+    end
+
+    def build_when_policy(step_data, label, default_when_policy)
+      return [default_when_policy, false] unless step_data.key?("when")
+
+      value = step_data["when"]
+      unless value.is_a?(String)
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} when must be a string"
+      end
+
+      stripped = value.strip
+      unless VALID_WHEN_POLICIES.include?(stripped)
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} has invalid when value #{value.inspect}"
+      end
+
+      [stripped.to_sym, true]
+    end
+
+    def build_condition(value, label)
+      unless value.is_a?(String)
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} if expression must be a string"
+      end
+
+      if value.strip.empty?
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} if expression is empty"
+      end
+
+      ConditionParser.new.parse(value)
+    rescue ArgumentError => e
+      raise ConfigurationError, "Invalid pipeline configuration: #{label} #{e.message}"
     end
 
     def build_env(env_data, label)

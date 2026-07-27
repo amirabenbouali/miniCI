@@ -1,0 +1,25 @@
+name: Conditions Success Example
+
+env:
+  DEPLOY: "true"
+  OPTIONAL_CHECK: "false"
+
+steps:
+  - name: Build
+    run: ruby -e 'puts "building"'
+
+  - name: Failure-only diagnostics
+    run: bash scripts/collect_diagnostics.sh
+    when: failure
+
+  - name: Always report
+    run: ruby -e 'puts "always reporting"'
+    when: always
+
+  - name: Conditional deploy
+    run: bash scripts/conditional_deploy.sh
+    if: env.DEPLOY == "true"
+
+  - name: Optional check
+    run: ruby -e 'puts "optional check"'
+    if: env.OPTIONAL_CHECK == "true"

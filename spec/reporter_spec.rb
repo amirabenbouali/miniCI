@@ -17,6 +17,16 @@ RSpec.describe MiniCi::Reporter do
     )
   end
 
+  def skipped_result(name: "Skipped", category: :step, skip_reason: :previous_failure)
+    MiniCi::StepResult.new(
+      step: step(name: name),
+      skipped: true,
+      skip_reason: skip_reason,
+      duration: 0,
+      category: category
+    )
+  end
+
   def timeout_step_result
     MiniCi::StepResult.new(
       step: step(name: "Integration tests"),
@@ -177,7 +187,8 @@ RSpec.describe MiniCi::Reporter do
     result = pipeline_result(
       step_results: [
         step_result(success: true, exit_status: 0, duration: 0.08),
-        step_result(success: false, exit_status: 1, duration: 1.42)
+        step_result(success: false, exit_status: 1, duration: 1.42),
+        skipped_result
       ],
       configured_step_count: 3,
       total_duration: 1.50
@@ -189,8 +200,8 @@ RSpec.describe MiniCi::Reporter do
     expect(text).to include("Status: FAILED")
     expect(text).to include("1 passed")
     expect(text).to include("1 failed")
+    expect(text).to include("1 skipped")
     expect(text).to include("3 configured")
-    expect(text).to include("Skipped main steps: 1")
     expect(text).to include("Duration: 1.50s")
     expect(text).to include("Attempts: 2")
   end
@@ -200,7 +211,8 @@ RSpec.describe MiniCi::Reporter do
     result = pipeline_result(
       step_results: [
         step_result(success: true, exit_status: 0, duration: 0.08),
-        timeout_step_result
+        timeout_step_result,
+        skipped_result
       ],
       configured_step_count: 3,
       total_duration: 2.20
@@ -210,7 +222,7 @@ RSpec.describe MiniCi::Reporter do
 
     text = output.string
     expect(text).to include("Status: FAILED")
-    expect(text).to include("Skipped main steps: 1")
+    expect(text).to include("1 skipped")
     expect(text.downcase).to include("timed out")
     expect(text).to include("Primary failure:")
     expect(text).to include("Integration tests timed out")
@@ -295,5 +307,37 @@ RSpec.describe MiniCi::Reporter do
     expect(output.string).to include("Run tests failed with exit code 1")
     expect(output.string).to include("Cleanup failures:")
     expect(output.string).to include("Remove temporary files failed with exit code 2")
+  end
+
+  it "prints skipped due to previous failure" do
+    output = StringIO.new
+
+    reporter_with(output).step_skipped(skipped_result(skip_reason: :previous_failure))
+
+    expect(output.string).to include("Skipped: requires previous success")
+  end
+
+  it "prints skipped due to no previous failure" do
+    output = StringIO.new
+
+    reporter_with(output).step_skipped(skipped_result(skip_reason: :no_previous_failure))
+
+    expect(output.string).to include("Skipped: requires previous failure")
+  end
+
+  it "prints skipped due to never" do
+    output = StringIO.new
+
+    reporter_with(output).step_skipped(skipped_result(skip_reason: :when_never))
+
+    expect(output.string).to include("Skipped: when is set to never")
+  end
+
+  it "prints skipped due to false conditions" do
+    output = StringIO.new
+
+    reporter_with(output).step_skipped(skipped_result(skip_reason: :if_condition_false))
+
+    expect(output.string).to include("Skipped: condition was false")
   end
 end
