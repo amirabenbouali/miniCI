@@ -116,6 +116,7 @@ module MiniCi
       config.steps.each_with_index do |step, index|
         @output.puts "#{index + 1}. #{step.name}"
         @output.puts "   #{step.command}"
+        @output.puts "   Timeout: #{format_timeout(step.timeout)}" if step.timeout
         print_step_environment(step.env)
         @output.puts
       end
@@ -164,6 +165,14 @@ module MiniCi
       @output.puts "   Environment:"
       env.each do |name, value|
         @output.puts "     #{name}=#{value}"
+      end
+    end
+
+    def format_timeout(timeout)
+      if timeout.is_a?(Integer)
+        "#{timeout}s"
+      else
+        "#{timeout}s"
       end
     end
 

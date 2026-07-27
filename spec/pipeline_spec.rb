@@ -1,20 +1,22 @@
 # frozen_string_literal: true
 
 RSpec.describe MiniCi::Pipeline do
-  FakeCommandResult = Struct.new(:success?, :exit_status, :duration, keyword_init: true)
+  FakeCommandResult = Struct.new(:success?, :exit_status, :duration, :timed_out?, :timeout, keyword_init: true)
 
   class FakeCommandRunner
-    attr_reader :commands, :envs
+    attr_reader :commands, :envs, :timeouts
 
     def initialize(results)
       @results = results
       @commands = []
       @envs = []
+      @timeouts = []
     end
 
-    def run(command, env: {})
+    def run(command, env: {}, timeout: nil)
       @commands << command
       @envs << env
+      @timeouts << timeout
       @results.fetch(@commands.length - 1)
     end
   end
@@ -31,12 +33,12 @@ RSpec.describe MiniCi::Pipeline do
     def summary(_pipeline_result); end
   end
 
-  def step(name, command, env: {})
-    MiniCi::Step.new(name: name, command: command, env: env)
+  def step(name, command, env: {}, timeout: nil)
+    MiniCi::Step.new(name: name, command: command, env: env, timeout: timeout)
   end
 
-  def fake_result(success:, exit_status:, duration: 0.1)
-    FakeCommandResult.new(success?: success, exit_status: exit_status, duration: duration)
+  def fake_result(success:, exit_status:, duration: 0.1, timed_out: false, timeout: nil)
+    FakeCommandResult.new(success?: success, exit_status: exit_status, duration: duration, timed_out?: timed_out, timeout: timeout)
   end
 
   def fixed_clock
@@ -335,5 +337,74 @@ RSpec.describe MiniCi::Pipeline do
 
     expect(global_env).to eq("APP_ENV" => "test")
     expect(step_env).to eq("APP_ENV" => "integration")
+  end
+
+  it "passes step timeouts to the command runner" do
+    runner = FakeCommandRunner.new([
+                                     fake_result(success: true, exit_status: 0)
+                                   ])
+
+    described_class.new(
+      name: "Test Pipeline",
+      steps: [step("One", "echo one", timeout: 2.5)],
+      command_runner: runner,
+      reporter: NullReporter.new,
+      clock: fixed_clock
+    ).run
+
+    expect(runner.timeouts).to eq([2.5])
+  end
+
+  it "fails the pipeline when a step times out" do
+    runner = FakeCommandRunner.new([
+                                     fake_result(success: false, exit_status: nil, timed_out: true, timeout: 1)
+                                   ])
+
+    result = described_class.new(
+      name: "Test Pipeline",
+      steps: [step("Timeout", "sleep 10", timeout: 1)],
+      command_runner: runner,
+      reporter: NullReporter.new,
+      clock: fixed_clock
+    ).run
+
+    expect(result).not_to be_success
+  end
+
+  it "does not execute steps after a timeout" do
+    runner = FakeCommandRunner.new([
+                                     fake_result(success: false, exit_status: nil, timed_out: true, timeout: 1),
+                                     fake_result(success: true, exit_status: 0)
+                                   ])
+
+    described_class.new(
+      name: "Test Pipeline",
+      steps: [
+        step("Timeout", "sleep 10", timeout: 1),
+        step("Skip", "echo skipped")
+      ],
+      command_runner: runner,
+      reporter: NullReporter.new,
+      clock: fixed_clock
+    ).run
+
+    expect(runner.commands).to eq(["sleep 10"])
+  end
+
+  it "preserves timeout results" do
+    runner = FakeCommandRunner.new([
+                                     fake_result(success: false, exit_status: nil, duration: 1.01, timed_out: true, timeout: 1)
+                                   ])
+
+    result = described_class.new(
+      name: "Test Pipeline",
+      steps: [step("Timeout", "sleep 10", timeout: 1)],
+      command_runner: runner,
+      reporter: NullReporter.new,
+      clock: fixed_clock
+    ).run
+
+    expect(result.step_results.first).to be_timed_out
+    expect(result.step_results.first.timeout).to eq(1)
   end
 end

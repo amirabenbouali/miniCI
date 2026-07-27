@@ -168,6 +168,50 @@ RSpec.describe MiniCi::ConfigLoader do
       FileUtils.remove_entry(directory)
     end
 
+    it "uses nil when step timeout is omitted" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+      YAML
+
+      config = loader_for(path).load
+
+      expect(config.steps.first.timeout).to be_nil
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "accepts an integer timeout" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+            timeout: 10
+      YAML
+
+      config = loader_for(path).load
+
+      expect(config.steps.first.timeout).to eq(10)
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "accepts a floating-point timeout" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+            timeout: 2.5
+      YAML
+
+      config = loader_for(path).load
+
+      expect(config.steps.first.timeout).to eq(2.5)
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
     it "raises when the configuration file is missing" do
       directory = Dir.mktmpdir
 
@@ -472,6 +516,106 @@ RSpec.describe MiniCi::ConfigLoader do
 
       expect { loader_for(path).load }
         .to raise_error(MiniCi::ConfigurationError, 'Invalid pipeline configuration: global env variable "BAD" contains a null byte')
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects zero timeout" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+            timeout: 0
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 timeout must be greater than 0")
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects negative timeout" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+            timeout: -1
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 timeout must be greater than 0")
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects string timeout" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+            timeout: "10"
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 timeout must be a positive number")
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects boolean timeout" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+            timeout: true
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 timeout must be a positive number")
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects null timeout" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+            timeout:
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 timeout must be a positive number")
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects array timeout" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+            timeout:
+              - 1
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 timeout must be a positive number")
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects mapping timeout" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+            timeout:
+              seconds: 1
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 timeout must be a positive number")
     ensure
       FileUtils.remove_entry(directory)
     end

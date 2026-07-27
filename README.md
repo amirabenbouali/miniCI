@@ -4,13 +4,14 @@ Mini CI is a lightweight local CI/CD pipeline runner written primarily in Ruby. 
 
 ## Current Milestone
 
-Mini CI v0.5 supports:
+Mini CI v0.6 supports:
 
 - loading pipeline steps from `pipeline.yml`;
 - loading a custom pipeline configuration path;
 - a structured CLI with `run`, `validate`, `list`, `version`, and `help` commands;
 - pipeline-level and step-level environment variables;
 - step-level environment variables overriding global values;
+- optional per-step command timeouts;
 - validating pipeline configuration with clear error messages;
 - running shell commands sequentially;
 - recording each executed step result;
@@ -19,7 +20,7 @@ Mini CI v0.5 supports:
 - stopping after the first failed command;
 - returning a non-zero application exit status when the pipeline fails.
 
-It does not yet support retries, parallel execution, timeouts, secrets management, `.env` files, Docker, deployment logic, a web frontend, a database, or external APIs.
+It does not yet support retries, parallel execution, secrets management, `.env` files, Docker, deployment logic, a web frontend, a database, or external APIs.
 
 ## Requirements
 
@@ -84,7 +85,7 @@ Mini CI looks for `pipeline.yml` in the current working directory by default.
 
 ### Format
 
-A pipeline configuration file contains a pipeline name, optional global environment variables, and an ordered list of steps. Each step has a display name, a shell command to run, and optional step-specific environment variables:
+A pipeline configuration file contains a pipeline name, optional global environment variables, and an ordered list of steps. Each step has a display name, a shell command to run, optional step-specific environment variables, and an optional timeout in seconds:
 
 ```yaml
 name: Environment Example
@@ -100,6 +101,7 @@ steps:
 
   - name: Override one variable
     run: ruby -e 'puts ENV.fetch("SHARED_VALUE")'
+    timeout: 5
     env:
       SHARED_VALUE: step
       FEATURE_FLAG: enabled
@@ -138,7 +140,9 @@ Mini CI validates the configuration before running any commands. It raises clear
 - environment variable names containing `=`, null bytes, spaces, hyphens, or other invalid characters;
 - environment variable values that are arrays or mappings;
 - null environment variable values;
-- environment variable values containing null bytes.
+- environment variable values containing null bytes;
+- `timeout` values that are strings, booleans, null, arrays, or mappings;
+- `timeout` values that are zero, negative, or non-finite.
 
 If the `name` field is omitted, Mini CI uses the default pipeline name `Mini CI`.
 
@@ -198,6 +202,27 @@ echo "$APP_ENV"
 ```
 
 Do not store production secrets in pipeline files yet. Pipeline files may be committed to Git, the `list` command displays configured values, and secure secret masking has not been implemented.
+
+### Step Timeouts
+
+Each step can define a maximum execution time in seconds:
+
+```yaml
+steps:
+  - name: Fast check
+    run: ruby -e 'puts "done"'
+    timeout: 5
+
+  - name: Decimal timeout
+    run: ruby -e 'sleep 1'
+    timeout: 2.5
+```
+
+When a step exceeds its timeout, Mini CI terminates the command, marks the step as failed, stops the pipeline, and reports skipped steps. Timeout values must be positive numbers; strings such as `"10"` are intentionally rejected.
+
+Mini CI starts each command in its own process group. On timeout, it sends `TERM` to the process group, waits briefly for graceful shutdown, then sends `KILL` if the command or its child processes are still running. This keeps commands such as `bash -c 'sleep 30 & wait'` from leaving child processes behind.
+
+The current timeout implementation targets Unix-like environments such as Linux and macOS.
 
 ### Referencing Bash Scripts
 
@@ -273,6 +298,7 @@ Global environment:
 
 2. Override one variable
    ruby -e 'puts ENV.fetch("SHARED_VALUE")'
+   Timeout: 5s
    Environment:
      SHARED_VALUE=step
      FEATURE_FLAG=enabled
@@ -353,6 +379,39 @@ echo $?
 
 This pipeline exits with a non-zero status because one step failed.
 
+## Timeout Example Pipeline
+
+Run the timeout example:
+
+```bash
+bundle exec bin/mini-ci run examples/timeout-pipeline.yml
+echo $?
+```
+
+Expected output is similar to:
+
+```text
+Mini CI — Timeout Example
+
+[1/3] Quick step
+quick step completed
+✓ Passed in 0.08s
+
+[2/3] Slow step
+starting slow step
+✗ Timed out after 1.00s
+
+Pipeline summary
+
+Status: FAILED
+Steps: 1 passed, 1 failed, 3 configured
+Skipped: 1
+Duration: 1.10s
+Failure: Slow step timed out
+```
+
+The timeout pipeline exits with status `1`.
+
 ## Version And Help
 
 Show the installed version:
@@ -364,7 +423,7 @@ bundle exec bin/mini-ci version
 Example output:
 
 ```text
-Mini CI 0.5.0
+Mini CI 0.6.0
 ```
 
 Show help:
@@ -423,8 +482,9 @@ Run `mini-ci help` for usage information.
 - A pipeline stops at the first failed command.
 - No secrets management or secret masking.
 - No `.env` file support.
-- No retries, parallel execution, timeouts, Docker, deployment, frontend, or database support.
+- Timeout process-group termination is currently intended for Unix-like systems.
+- No retries, parallel execution, Docker, deployment, frontend, or database support.
 
 ## Next Milestone
 
-The next planned milestone adds command timeouts.
+The next planned milestone adds retries.

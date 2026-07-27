@@ -97,6 +97,7 @@ module MiniCi
       name = step_data["name"]
       command = step_data["run"]
       env = build_env(step_data.fetch("env", nil), "step #{step_number} env")
+      timeout = build_timeout(step_data["timeout"], step_number) if step_data.key?("timeout")
 
       unless name.is_a?(String) && !name.strip.empty?
         raise ConfigurationError, "Invalid pipeline configuration: step #{step_number} has a blank name"
@@ -106,7 +107,7 @@ module MiniCi
         raise ConfigurationError, "Invalid pipeline configuration: step #{step_number} has a blank run command"
       end
 
-      Step.new(name: name, command: command, env: env)
+      Step.new(name: name, command: command, env: env, timeout: timeout)
     end
 
     def build_env(env_data, label)
@@ -162,6 +163,18 @@ module MiniCi
       end
 
       string_value
+    end
+
+    def build_timeout(value, step_number)
+      unless value.is_a?(Numeric) && value.finite?
+        raise ConfigurationError, "Invalid pipeline configuration: step #{step_number} timeout must be a positive number"
+      end
+
+      unless value.positive?
+        raise ConfigurationError, "Invalid pipeline configuration: step #{step_number} timeout must be greater than 0"
+      end
+
+      value
     end
   end
 end

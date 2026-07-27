@@ -202,6 +202,42 @@ RSpec.describe MiniCi::CLI do
     ensure
       FileUtils.remove_entry(directory) if directory
     end
+
+    it "accepts valid timeout configuration" do
+      path, directory = write_temp_config(<<~YAML)
+        name: Timeout Validate
+        steps:
+          - name: Slow
+            run: sleep 1
+            timeout: 0.5
+      YAML
+
+      exit_code, stdout, stderr = run_cli(["validate", path])
+
+      expect(exit_code).to eq(0)
+      expect(stdout).to include("Pipeline configuration is valid.")
+      expect(stderr).to be_empty
+    ensure
+      FileUtils.remove_entry(directory) if directory
+    end
+
+    it "rejects invalid timeout configuration" do
+      path, directory = write_temp_config(<<~YAML)
+        name: Invalid Timeout
+        steps:
+          - name: Slow
+            run: sleep 1
+            timeout: "1"
+      YAML
+
+      exit_code, stdout, stderr = run_cli(["validate", path])
+
+      expect(exit_code).to eq(2)
+      expect(stdout).to be_empty
+      expect(stderr).to include("timeout must be a positive number")
+    ensure
+      FileUtils.remove_entry(directory) if directory
+    end
   end
 
   describe "list" do
@@ -232,6 +268,15 @@ RSpec.describe MiniCi::CLI do
       expect(stdout).to include("Environment:")
       expect(stdout).to include("SHARED_VALUE=step")
       expect(stdout).to include("FEATURE_FLAG=enabled")
+    end
+
+    it "displays configured timeout values" do
+      exit_code, stdout, stderr = run_cli(["list", "examples/timeout-pipeline.yml"])
+
+      expect(exit_code).to eq(0)
+      expect(stdout).to include("Slow step")
+      expect(stdout).to include("Timeout: 1s")
+      expect(stderr).to be_empty
     end
 
     it "accepts a custom configuration file" do
@@ -327,6 +372,15 @@ RSpec.describe MiniCi::CLI do
       expect(File.read(marker)).to eq("test")
     ensure
       FileUtils.remove_entry(directory) if directory
+    end
+
+    it "returns 1 for a timeout pipeline" do
+      exit_code, stdout, = run_cli(["run", "examples/timeout-pipeline.yml"])
+
+      expect(exit_code).to eq(1)
+      expect(stdout.downcase).to include("timed out")
+      expect(stdout).to include("Skipped: 1")
+      expect(stdout).not_to include("Never reached")
     end
   end
 

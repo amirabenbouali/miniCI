@@ -16,6 +16,17 @@ RSpec.describe MiniCi::Reporter do
     )
   end
 
+  def timeout_step_result
+    MiniCi::StepResult.new(
+      step: step(name: "Integration tests"),
+      success: false,
+      exit_status: nil,
+      duration: 2.14,
+      timed_out: true,
+      timeout: 2
+    )
+  end
+
   def pipeline_result(step_results:, configured_step_count:, total_duration:)
     MiniCi::PipelineResult.new(
       name: "Example Pipeline",
@@ -53,6 +64,15 @@ RSpec.describe MiniCi::Reporter do
 
     expect(output.string).to include("Failed with exit code 1")
     expect(output.string).to include("1.42s")
+  end
+
+  it "prints a timed-out step with its timeout duration" do
+    output = StringIO.new
+
+    reporter_with(output).step_failed(timeout_step_result)
+
+    expect(output.string.downcase).to include("timed out")
+    expect(output.string).to include("2.00s")
   end
 
   it "prints a successful pipeline summary" do
@@ -97,5 +117,25 @@ RSpec.describe MiniCi::Reporter do
     expect(text).to include("3 configured")
     expect(text).to include("Skipped: 1")
     expect(text).to include("Duration: 1.50s")
+  end
+
+  it "prints timeout failure details in the summary" do
+    output = StringIO.new
+    result = pipeline_result(
+      step_results: [
+        step_result(success: true, exit_status: 0, duration: 0.08),
+        timeout_step_result
+      ],
+      configured_step_count: 3,
+      total_duration: 2.20
+    )
+
+    reporter_with(output).summary(result)
+
+    text = output.string
+    expect(text).to include("Status: FAILED")
+    expect(text).to include("Skipped: 1")
+    expect(text.downcase).to include("timed out")
+    expect(text).to include("Failure: Integration tests timed out")
   end
 end

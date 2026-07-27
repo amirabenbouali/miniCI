@@ -10,6 +10,15 @@ RSpec.describe MiniCi::CommandRunner do
     path
   end
 
+  def process_alive?(pid)
+    Process.kill(0, pid)
+    true
+  rescue Errno::ESRCH
+    false
+  rescue Errno::EPERM
+    true
+  end
+
   it "returns a structured result" do
     result = described_class.new.run("ruby -e 'exit 0'")
 
@@ -30,6 +39,29 @@ RSpec.describe MiniCi::CommandRunner do
 
     expect(result).not_to be_success
     expect(result.exit_status).to eq(7)
+  end
+
+  it "lets a fast command succeed before its timeout" do
+    result = described_class.new.run("ruby -e 'puts \"fast\"'", timeout: 2)
+
+    expect(result).to be_success
+    expect(result).not_to be_timed_out
+    expect(result.exit_status).to eq(0)
+  end
+
+  it "times out a slow command" do
+    result = described_class.new.run("ruby -e 'sleep 2'", timeout: 0.2)
+
+    expect(result).to be_timed_out
+    expect(result).not_to be_success
+    expect(result.exit_status).to be_nil
+  end
+
+  it "approximately respects the configured timeout duration" do
+    result = described_class.new.run("ruby -e 'sleep 2'", timeout: 0.2)
+
+    expect(result.duration).to be >= 0.18
+    expect(result.duration).to be < 2
   end
 
   it "records a non-negative duration" do
@@ -98,5 +130,38 @@ RSpec.describe MiniCi::CommandRunner do
     expect(File.read(path)).to eq("")
   ensure
     FileUtils.rm_f(path) if path
+  end
+
+  it "keeps live command output available" do
+    path = temp_file
+
+    result = described_class.new.run("ruby -e 'puts \"visible\"' > #{path}", timeout: 2)
+
+    expect(result).to be_success
+    expect(File.read(path)).to include("visible")
+  ensure
+    FileUtils.rm_f(path) if path
+  end
+
+  it "terminates child processes when the parent shell times out" do
+    directory = Dir.mktmpdir
+    child_pid_file = File.join(directory, "child.pid")
+    command = "bash -c 'sleep 5 & echo $! > #{child_pid_file}; wait'"
+
+    result = described_class.new.run(command, timeout: 0.2)
+    child_pid = File.read(child_pid_file).to_i
+    sleep 0.2
+
+    expect(result).to be_timed_out
+    expect(process_alive?(child_pid)).to be(false)
+  ensure
+    FileUtils.remove_entry(directory) if directory
+  end
+
+  it "reaps timed-out processes" do
+    result = described_class.new.run("ruby -e 'sleep 2'", timeout: 0.2)
+
+    expect(result).to be_timed_out
+    expect { Process.wait(-1, Process::WNOHANG) }.to raise_error(Errno::ECHILD)
   end
 end

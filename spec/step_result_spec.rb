@@ -30,4 +30,19 @@ RSpec.describe MiniCi::StepResult do
 
     expect(result.duration).to eq(0.42)
   end
+
+  it "reports timeout results" do
+    result = described_class.new(
+      step: step,
+      success: false,
+      exit_status: nil,
+      duration: 1.01,
+      timed_out: true,
+      timeout: 1
+    )
+
+    expect(result).to be_timed_out
+    expect(result).not_to be_success
+    expect(result.timeout).to eq(1)
+  end
 end

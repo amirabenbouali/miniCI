@@ -96,4 +96,17 @@ RSpec.describe MiniCi::PipelineResult do
     expect(result).to be_failed
     expect(result).not_to be_success
   end
+
+  it "exposes the first failure result" do
+    failed_step = step_result(name: "Two", success: false, exit_status: 1)
+    result = pipeline_result(
+      configured_step_count: 2,
+      step_results: [
+        step_result(name: "One", success: true, exit_status: 0),
+        failed_step
+      ]
+    )
+
+    expect(result.failure_result).to eq(failed_step)
+  end
 end

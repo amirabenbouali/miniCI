@@ -2,13 +2,15 @@
 
 module MiniCi
   class StepResult
-    attr_reader :step, :exit_status, :duration, :started_at, :finished_at
+    attr_reader :step, :exit_status, :duration, :timeout, :started_at, :finished_at
 
-    def initialize(step:, success:, exit_status:, duration:, started_at: nil, finished_at: nil)
+    def initialize(step:, success:, exit_status:, duration:, timed_out: false, timeout: nil, started_at: nil, finished_at: nil)
       @step = step
       @success = success
       @exit_status = exit_status
       @duration = duration
+      @timed_out = timed_out
+      @timeout = timeout
       @started_at = started_at
       @finished_at = finished_at
       freeze
@@ -20,6 +22,10 @@ module MiniCi
 
     def failed?
       !success?
+    end
+
+    def timed_out?
+      @timed_out
     end
   end
 end

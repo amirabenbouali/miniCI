@@ -27,12 +27,18 @@ module MiniCi
       @steps.each_with_index do |step, index|
         @reporter.step_started(step, index: index + 1, total: @steps.length)
 
-        command_result = @command_runner.run(step.command, env: @env.merge(step.env))
+        command_result = @command_runner.run(
+          step.command,
+          env: @env.merge(step.env),
+          timeout: step.timeout
+        )
         step_result = StepResult.new(
           step: step,
           success: command_result.success?,
           exit_status: command_result.exit_status,
-          duration: command_result.duration
+          duration: command_result.duration,
+          timed_out: command_result.timed_out?,
+          timeout: command_result.timeout
         )
         step_results << step_result
 

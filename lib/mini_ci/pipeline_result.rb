@@ -35,5 +35,9 @@ module MiniCi
     def skipped_count
       configured_step_count - executed_count
     end
+
+    def failure_result
+      step_results.find(&:failed?)
+    end
   end
 end

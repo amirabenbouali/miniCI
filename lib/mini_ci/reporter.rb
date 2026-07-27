@@ -21,7 +21,11 @@ module MiniCi
     end
 
     def step_failed(step_result)
-      @output.puts "✗ Failed with exit code #{step_result.exit_status} in #{format_duration(step_result.duration)}"
+      if step_result.timed_out?
+        @output.puts "✗ Timed out after #{format_duration(step_result.timeout)}"
+      else
+        @output.puts "✗ Failed with exit code #{step_result.exit_status} in #{format_duration(step_result.duration)}"
+      end
       @output.puts
     end
 
@@ -32,6 +36,7 @@ module MiniCi
       @output.puts steps_summary_line(pipeline_result)
       @output.puts "Skipped: #{pipeline_result.skipped_count}" if pipeline_result.skipped_count.positive?
       @output.puts "Duration: #{format_duration(pipeline_result.total_duration)}"
+      @output.puts failure_line(pipeline_result.failure_result) if pipeline_result.failure_result
     end
 
     private
@@ -50,6 +55,14 @@ module MiniCi
 
     def format_duration(seconds)
       format("%.2fs", seconds)
+    end
+
+    def failure_line(step_result)
+      if step_result.timed_out?
+        "Failure: #{step_result.step.name} timed out"
+      else
+        "Failure: #{step_result.step.name} failed"
+      end
     end
   end
 end

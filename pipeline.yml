@@ -11,6 +11,7 @@ steps:
 
   - name: Override one variable
     run: ruby -e 'puts ENV.fetch("SHARED_VALUE")'
+    timeout: 5
     env:
       SHARED_VALUE: step
       FEATURE_FLAG: enabled

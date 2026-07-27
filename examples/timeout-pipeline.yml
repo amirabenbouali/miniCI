@@ -1,0 +1,12 @@
+name: Timeout Example
+
+steps:
+  - name: Quick step
+    run: ruby -e 'puts "quick step completed"'
+
+  - name: Slow step
+    run: ruby -e 'puts "starting slow step"; STDOUT.flush; sleep 10'
+    timeout: 1
+
+  - name: Never reached
+    run: echo "this should be skipped"

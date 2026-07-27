@@ -17,6 +17,24 @@ RSpec.describe MiniCi::Step do
     expect(step.env).to eq({})
   end
 
+  it "defaults timeout to nil" do
+    step = described_class.new(name: "Example", command: "echo hi")
+
+    expect(step.timeout).to be_nil
+  end
+
+  it "stores a valid timeout" do
+    step = described_class.new(name: "Example", command: "echo hi", timeout: 2.5)
+
+    expect(step.timeout).to eq(2.5)
+  end
+
+  it "rejects invalid timeouts" do
+    expect do
+      described_class.new(name: "Example", command: "echo hi", timeout: 0)
+    end.to raise_error(ArgumentError, "Step timeout must be a positive number")
+  end
+
   it "stores environment variables" do
     step = described_class.new(
       name: "Example",
