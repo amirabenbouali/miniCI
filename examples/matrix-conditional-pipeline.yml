@@ -1,0 +1,31 @@
+name: Conditional Matrix
+
+matrix:
+  ruby:
+    - "3.2"
+    - "3.3"
+
+  database:
+    - sqlite
+    - postgres
+
+before_all:
+  - name: Setup sees matrix
+    run: ruby -e 'puts "setup ruby=#{ENV.fetch("MATRIX_RUBY")}"'
+
+steps:
+  - name: Print matrix values
+    run: ruby -e 'puts "step db=#{ENV.fetch("MATRIX_DATABASE")}"'
+
+  - name: PostgreSQL-only step
+    run: ruby -e 'puts "postgres condition matched"'
+    if: env.MATRIX_DATABASE == "postgres"
+
+  - name: Override matrix value
+    run: ruby -e 'puts "override ruby=#{ENV.fetch("MATRIX_RUBY")}"'
+    env:
+      MATRIX_RUBY: custom
+
+after_all:
+  - name: Cleanup sees matrix
+    run: ruby -e 'puts "cleanup db=#{ENV.fetch("MATRIX_DATABASE")}"'

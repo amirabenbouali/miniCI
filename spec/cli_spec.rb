@@ -349,6 +349,58 @@ RSpec.describe MiniCi::CLI do
     ensure
       FileUtils.remove_entry(directory) if directory
     end
+
+    it "displays matrix job counts" do
+      exit_code, stdout, stderr = run_cli(["validate", "examples/matrix-basic-pipeline.yml"])
+
+      expect(exit_code).to eq(0)
+      expect(stdout).to include("Matrix dimensions: 2")
+      expect(stdout).to include("Generated jobs: 4")
+      expect(stderr).to be_empty
+    end
+
+    it "returns a configuration error for malformed matrices" do
+      path, directory = write_temp_config(<<~YAML)
+        name: Bad Matrix
+        matrix:
+          ruby: []
+        steps:
+          - name: Step
+            run: echo step
+      YAML
+
+      exit_code, stdout, stderr = run_cli(["validate", path])
+
+      expect(exit_code).to eq(2)
+      expect(stdout).to be_empty
+      expect(stderr).to include("matrix value list")
+    ensure
+      FileUtils.remove_entry(directory) if directory
+    end
+
+    it "rejects over-limit matrices without executing commands" do
+      directory = Dir.mktmpdir
+      marker = File.join(directory, "marker.txt")
+      values = (1..257).to_a.join(", ")
+      path = File.join(directory, "pipeline.yml")
+      File.write(path, <<~YAML)
+        name: Too Large
+        matrix:
+          shard: [#{values}]
+        steps:
+          - name: Create marker
+            run: ruby -e 'File.write("#{marker}", "created")'
+      YAML
+
+      exit_code, stdout, stderr = run_cli(["run", path])
+
+      expect(exit_code).to eq(2)
+      expect(stdout).to be_empty
+      expect(stderr).to include("exceeding the limit of 256")
+      expect(File.exist?(marker)).to be(false)
+    ensure
+      FileUtils.remove_entry(directory) if directory
+    end
   end
 
   describe "list" do
@@ -419,6 +471,19 @@ RSpec.describe MiniCi::CLI do
       expect(exit_code).to eq(0)
       expect(stdout).to include("When: failure")
       expect(stdout).to include('If: env.DEPLOY == "true"')
+      expect(stderr).to be_empty
+    end
+
+    it "displays matrix dimensions and combinations" do
+      exit_code, stdout, stderr = run_cli(["list", "examples/matrix-basic-pipeline.yml"])
+
+      expect(exit_code).to eq(0)
+      expect(stdout).to include("Matrix:")
+      expect(stdout).to include("ruby: 3.2, 3.3")
+      expect(stdout).to include("database: sqlite, postgres")
+      expect(stdout).to include("Generated jobs: 4")
+      expect(stdout).to include("1. ruby=3.2, database=sqlite")
+      expect(stdout).to include("4. ruby=3.3, database=postgres")
       expect(stderr).to be_empty
     end
 
@@ -612,6 +677,35 @@ RSpec.describe MiniCi::CLI do
       expect(stdout).to include("Skipped: when is set to never")
       expect(stdout).not_to include("disabled item should not execute")
       expect(stderr).to be_empty
+    end
+
+    it "preserves non-matrix pipeline behaviour" do
+      exit_code, stdout, stderr = run_cli(["run"])
+
+      expect(exit_code).to eq(0)
+      expect(stdout).not_to include("Matrix summary")
+      expect(stderr).to be_empty
+    end
+
+    it "returns 0 for the basic matrix example" do
+      exit_code, stdout, stderr = run_cli(["run", "examples/matrix-basic-pipeline.yml"])
+
+      expect(exit_code).to eq(0)
+      expect(stdout).to include("Matrix job 1/4")
+      expect(stdout).to include("Matrix job 4/4")
+      expect(stdout).to include("Overall status: PASSED")
+      expect(stdout).to include("Jobs: 4 passed, 0 failed, 4 total")
+      expect(stderr).to be_empty
+    end
+
+    it "returns 1 for the partial-failure matrix example and keeps running later jobs" do
+      exit_code, stdout, = run_cli(["run", "examples/matrix-partial-failure-pipeline.yml"])
+
+      expect(exit_code).to eq(1)
+      expect(stdout).to include("Failure: Matrix check failed with exit code 1")
+      expect(stdout).to include("Matrix job 4/4")
+      expect(stdout).to include("Cleanup after matrix job")
+      expect(stdout).to include("Jobs: 3 passed, 1 failed, 4 total")
     end
   end
 

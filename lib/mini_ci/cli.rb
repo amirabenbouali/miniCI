@@ -3,6 +3,8 @@
 require_relative "command_runner"
 require_relative "config_loader"
 require_relative "errors"
+require_relative "matrix_expander"
+require_relative "matrix_runner"
 require_relative "pipeline"
 require_relative "pipeline_result"
 require_relative "reporter"
@@ -80,6 +82,21 @@ module MiniCi
     def run_pipeline(arguments)
       config_path = config_path_from(arguments, "run")
       config = load_config(config_path)
+      if config.matrix
+        result = MatrixRunner.new(
+          name: config.name,
+          name_explicit: config.name_explicit,
+          matrix_definition: config.matrix,
+          before_all: config.before_all,
+          steps: config.steps,
+          after_all: config.after_all,
+          env: config.env,
+          reporter: Reporter.new(output: @output)
+        ).run
+
+        return result.success? ? SUCCESS : PIPELINE_FAILURE
+      end
+
       result = Pipeline.new(
         name: config.name,
         before_all: config.before_all,
@@ -99,6 +116,7 @@ module MiniCi
       @output.puts "Pipeline configuration is valid."
       @output.puts
       @output.puts "Name: #{config.name}"
+      print_matrix_validation(config.matrix) if config.matrix
       @output.puts "Before-all hooks: #{config.before_all.length}"
       @output.puts "Steps: #{config.steps.length}"
       @output.puts "After-all hooks: #{config.after_all.length}"
@@ -117,6 +135,7 @@ module MiniCi
       @output.puts
 
       print_global_environment(config.env)
+      print_matrix(config.matrix) if config.matrix
 
       print_phase("Before all", config.before_all)
       print_phase("Steps", config.steps)
@@ -171,6 +190,39 @@ module MiniCi
       (config.before_all + config.steps + config.after_all).count do |step|
         step.when_policy_explicit? || step.condition
       end
+    end
+
+    def print_matrix_validation(matrix)
+      @output.puts "Matrix dimensions: #{matrix.dimension_count}"
+      @output.puts "Generated jobs: #{matrix.total_combination_count}"
+    end
+
+    def print_matrix(matrix)
+      return unless matrix
+
+      combinations = MatrixExpander.new.expand(matrix)
+
+      @output.puts "Matrix:"
+      matrix.dimensions.each do |key, values|
+        @output.puts "  #{key}: #{values.join(", ")}"
+      end
+      @output.puts
+      @output.puts "Generated jobs: #{combinations.length}"
+      @output.puts
+      print_combinations(combinations)
+    end
+
+    def print_combinations(combinations)
+      display_limit = 20
+      shown = combinations.first(display_limit)
+      @output.puts "Combinations:"
+      shown.each_with_index do |combination, index|
+        @output.puts "  #{index + 1}. #{combination.label}"
+      end
+      if combinations.length > display_limit
+        @output.puts "  ... #{combinations.length - display_limit} more"
+      end
+      @output.puts
     end
 
     def print_global_environment(env)

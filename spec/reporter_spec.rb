@@ -27,6 +27,21 @@ RSpec.describe MiniCi::Reporter do
     )
   end
 
+  def matrix_job_result(success:, label: "ruby=3.3", duration: 0.2)
+    combination = MiniCi::MatrixCombination.new("ruby" => label.split("=").last)
+    result = pipeline_result(
+      step_results: [step_result(success: success, exit_status: success ? 0 : 1, duration: duration)],
+      configured_step_count: 1,
+      total_duration: duration
+    )
+
+    MiniCi::MatrixJobResult.new(
+      combination: combination,
+      pipeline_result: result,
+      display_name: "Example [#{combination.label}]"
+    )
+  end
+
   def timeout_step_result
     MiniCi::StepResult.new(
       step: step(name: "Integration tests"),
@@ -339,5 +354,41 @@ RSpec.describe MiniCi::Reporter do
     reporter_with(output).step_skipped(skipped_result(skip_reason: :if_condition_false))
 
     expect(output.string).to include("Skipped: condition was false")
+  end
+
+  it "prints matrix job numbering and display names" do
+    output = StringIO.new
+
+    reporter_with(output).matrix_job_started(index: 1, total: 4, display_name: "Ruby Matrix [ruby=3.2]")
+
+    expect(output.string).to include("Matrix job 1/4")
+    expect(output.string).to include("Ruby Matrix [ruby=3.2]")
+  end
+
+  it "prints matrix job status" do
+    output = StringIO.new
+
+    reporter_with(output).matrix_job_finished(matrix_job_result(success: true))
+
+    expect(output.string).to include("Job status: PASSED")
+    expect(output.string).to include("Duration:")
+  end
+
+  it "prints matrix aggregate summary" do
+    output = StringIO.new
+    result = MiniCi::MatrixRunResult.new(
+      matrix_job_results: [
+        matrix_job_result(success: true, label: "ruby=3.2"),
+        matrix_job_result(success: false, label: "ruby=3.3")
+      ],
+      total_duration: 0.4
+    )
+
+    reporter_with(output).matrix_summary(result)
+
+    expect(output.string).to include("Matrix summary")
+    expect(output.string).to include("Overall status: FAILED")
+    expect(output.string).to include("Jobs: 1 passed, 1 failed, 2 total")
+    expect(output.string).to include("Failure:")
   end
 end

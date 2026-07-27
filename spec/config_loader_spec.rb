@@ -43,6 +43,7 @@ RSpec.describe MiniCi::ConfigLoader do
       config = loader_for(path).load
 
       expect(config.name).to eq("My Pipeline")
+      expect(config.name_explicit).to be(true)
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -74,6 +75,7 @@ RSpec.describe MiniCi::ConfigLoader do
       config = loader_for(path).load
 
       expect(config.name).to eq("Mini CI")
+      expect(config.name_explicit).to be(false)
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -649,6 +651,193 @@ RSpec.describe MiniCi::ConfigLoader do
         .to raise_error(MiniCi::ConfigurationError, /Supported format/)
     ensure
       FileUtils.remove_entry(directory)
+    end
+
+    it "uses nil matrix when matrix is omitted" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo step
+      YAML
+
+      expect(loader_for(path).load.matrix).to be_nil
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "loads a valid matrix and preserves order" do
+      path, directory = write_config(<<~YAML)
+        matrix:
+          ruby:
+            - "3.2"
+            - "3.3"
+          database:
+            - sqlite
+            - postgres
+        steps:
+          - name: Step
+            run: echo step
+      YAML
+
+      matrix = loader_for(path).load.matrix
+
+      expect(matrix.dimensions.keys).to eq(["ruby", "database"])
+      expect(matrix.dimensions["ruby"]).to eq(["3.2", "3.3"])
+      expect(matrix.dimensions["database"]).to eq(["sqlite", "postgres"])
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "converts scalar matrix values to strings" do
+      path, directory = write_config(<<~YAML)
+        matrix:
+          debug:
+            - true
+            - false
+          shard:
+            - 1
+            - 2
+        steps:
+          - name: Step
+            run: echo step
+      YAML
+
+      matrix = loader_for(path).load.matrix
+
+      expect(matrix.dimensions["debug"]).to eq(["true", "false"])
+      expect(matrix.dimensions["shard"]).to eq(["1", "2"])
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects an empty matrix" do
+      path, directory = write_config(<<~YAML)
+        matrix: {}
+        steps:
+          - name: Step
+            run: echo step
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: matrix must not be empty")
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects a matrix that is not a mapping" do
+      path, directory = write_config(<<~YAML)
+        matrix:
+          - ruby
+        steps:
+          - name: Step
+            run: echo step
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: matrix must be a mapping")
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects invalid matrix keys" do
+      path, directory = write_config(<<~YAML)
+        matrix:
+          ruby-version:
+            - "3.3"
+        steps:
+          - name: Step
+            run: echo step
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, 'Invalid pipeline configuration: matrix key "ruby-version" is invalid')
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects duplicate matrix keys" do
+      path, directory = write_config(<<~YAML)
+        matrix:
+          ruby:
+            - "3.2"
+          ruby:
+            - "3.3"
+        steps:
+          - name: Step
+            run: echo step
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, 'Invalid pipeline configuration: duplicate key "ruby"')
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects empty matrix value arrays" do
+      path, directory = write_config(<<~YAML)
+        matrix:
+          ruby: []
+        steps:
+          - name: Step
+            run: echo step
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, 'Invalid pipeline configuration: matrix value list for "ruby" must not be empty')
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects non-array matrix value lists" do
+      path, directory = write_config(<<~YAML)
+        matrix:
+          ruby: "3.3"
+        steps:
+          - name: Step
+            run: echo step
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, 'Invalid pipeline configuration: matrix value list for "ruby" must be an array')
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects null, nested array, and mapping matrix values" do
+      [
+        "ruby:\n  -",
+        "ruby:\n  - [nested]",
+        "ruby:\n  - version: \"3.3\""
+      ].each do |matrix_yaml|
+        path, directory = write_config(<<~YAML)
+          matrix:
+            #{matrix_yaml.gsub("\n", "\n  ")}
+          steps:
+            - name: Step
+              run: echo step
+        YAML
+
+        expect { loader_for(path).load }
+          .to raise_error(MiniCi::ConfigurationError, /matrix value 1 for "ruby" must be a scalar/)
+        FileUtils.remove_entry(directory)
+      end
+    end
+
+    it "rejects matrices over the expansion limit before execution" do
+      values = (1..257).map { |number| "            - #{number}" }.join("\n")
+      path, directory = write_config(<<~YAML)
+        matrix:
+          shard:
+#{values}
+        steps:
+          - name: Step
+            run: echo step
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, /exceeding the limit of 256/)
+    ensure
+      FileUtils.remove_entry(directory) if directory && File.exist?(directory)
     end
 
     it "raises when the configuration file is missing" do

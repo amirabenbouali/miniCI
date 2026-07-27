@@ -4,7 +4,7 @@ Mini CI is a lightweight local CI/CD pipeline runner written primarily in Ruby. 
 
 ## Current Milestone
 
-Mini CI v0.9 supports:
+Mini CI v0.10 supports:
 
 - loading pipeline steps from `pipeline.yml`;
 - loading a custom pipeline configuration path;
@@ -15,6 +15,8 @@ Mini CI v0.9 supports:
 - conditional execution with `when` policies;
 - environment-variable `if` conditions;
 - structured skipped results and skipped counts;
+- matrix builds with deterministic Cartesian-product expansion;
+- sequential matrix job execution with fail-late aggregate results;
 - pipeline-level and step-level environment variables;
 - step-level environment variables overriding global values;
 - optional per-step command timeouts;
@@ -27,7 +29,7 @@ Mini CI v0.9 supports:
 - continuing to evaluate later configured items after failures;
 - returning a non-zero application exit status when the pipeline fails.
 
-It does not yet support matrix builds, parallel execution, secrets management, `.env` files, Docker, deployment logic, a web frontend, a database, or external APIs.
+It does not yet support parallel matrix execution, artifacts, caching, plugins, secrets management, `.env` files, Docker, deployment logic, a web frontend, a database, or external APIs.
 
 ## Requirements
 
@@ -219,6 +221,86 @@ When both `when` and `if` are present, both must pass. Mini CI evaluates `when` 
 
 Conditions are parsed by Mini CI's small parser. They are not evaluated as Ruby, passed to `eval`, executed as shell code, or interpolated into commands.
 
+### Matrix Builds
+
+A pipeline can define a top-level `matrix` mapping. Mini CI creates one matrix job for every combination of matrix values:
+
+```yaml
+name: Ruby Matrix Example
+
+matrix:
+  ruby:
+    - "3.2"
+    - "3.3"
+
+  database:
+    - sqlite
+    - postgres
+
+steps:
+  - name: Print matrix values
+    run: ruby -e 'puts "ruby=#{ENV.fetch("MATRIX_RUBY")} database=#{ENV.fetch("MATRIX_DATABASE")}"'
+```
+
+This generates four jobs in deterministic Cartesian-product order:
+
+```text
+1. ruby=3.2, database=sqlite
+2. ruby=3.2, database=postgres
+3. ruby=3.3, database=sqlite
+4. ruby=3.3, database=postgres
+```
+
+Mini CI preserves matrix key order from the YAML file and value order within each matrix array. Jobs run sequentially in this milestone.
+
+Matrix values are exposed as environment variables by uppercasing the key and adding the `MATRIX_` prefix:
+
+```text
+ruby         -> MATRIX_RUBY
+database     -> MATRIX_DATABASE
+feature_flag -> MATRIX_FEATURE_FLAG
+```
+
+Scalar matrix values are converted to strings, so booleans and numbers become values such as `true`, `false`, and `1`.
+
+Matrix environment precedence is:
+
+```text
+parent process environment
+pipeline-level environment
+matrix environment
+step-level or hook-level environment
+```
+
+Step-level and hook-level variables may explicitly override matrix variables:
+
+```yaml
+steps:
+  - name: Override matrix value
+    run: ruby -e 'puts ENV.fetch("MATRIX_RUBY")'
+    env:
+      MATRIX_RUBY: custom
+```
+
+Matrix variables are available to `before_all`, normal `steps`, `after_all`, and `if` condition evaluation:
+
+```yaml
+steps:
+  - name: PostgreSQL-only test
+    run: echo "postgres test"
+    if: env.MATRIX_DATABASE == "postgres"
+```
+
+Matrix runs use a fail-late policy. If one job fails, Mini CI finishes that job's cleanup, continues running later jobs, and returns exit code `1` after all jobs finish if any job failed.
+
+Each job gets a stable display name:
+
+```text
+Ruby Matrix Example [ruby=3.2, database=sqlite]
+```
+
+Mini CI rejects matrix definitions that expand beyond `256` jobs to avoid accidental huge runs.
+
 ### Custom Configuration Path
 
 You can pass an optional file path to load a different configuration:
@@ -263,6 +345,11 @@ Mini CI validates the configuration before running any commands. It raises clear
 - `retry_delay` values that are negative, strings, booleans, null, arrays, mappings, or non-finite.
 - `when` values other than `success`, `failure`, `always`, or `never`;
 - `if` values that are blank, non-strings, or outside the supported grammar.
+- `matrix` values that are not mappings or are empty;
+- matrix keys that do not match `[A-Za-z_][A-Za-z0-9_]*`;
+- matrix value lists that are empty or are not arrays;
+- matrix values that are null, arrays, or mappings;
+- matrices that expand beyond `256` generated jobs.
 
 If the `name` field is omitted, Mini CI uses the default pipeline name `Mini CI`.
 
@@ -486,6 +573,24 @@ Conditional settings are shown only when explicitly configured:
    bash scripts/conditional_deploy.sh
    When: success
    If: env.DEPLOY == "true"
+```
+
+Matrix pipelines show dimensions, generated job counts, and combinations for small matrices:
+
+```text
+Basic Matrix
+
+Matrix:
+  ruby: 3.2, 3.3
+  database: sqlite, postgres
+
+Generated jobs: 4
+
+Combinations:
+  1. ruby=3.2, database=sqlite
+  2. ruby=3.2, database=postgres
+  3. ruby=3.3, database=sqlite
+  4. ruby=3.3, database=postgres
 ```
 
 ## Run The Example Pipeline
@@ -725,6 +830,42 @@ echo $?
 
 It exits with status `0`. The disabled `when: never` item is reported as skipped and its command is not executed.
 
+## Matrix Example Pipelines
+
+Validate and list the basic matrix example:
+
+```bash
+bundle exec bin/mini-ci validate examples/matrix-basic-pipeline.yml
+bundle exec bin/mini-ci list examples/matrix-basic-pipeline.yml
+```
+
+Run the basic matrix example:
+
+```bash
+bundle exec bin/mini-ci run examples/matrix-basic-pipeline.yml
+echo $?
+```
+
+It generates four jobs, runs them sequentially, and exits with status `0` when every job passes.
+
+Run the conditional matrix example:
+
+```bash
+bundle exec bin/mini-ci run examples/matrix-conditional-pipeline.yml
+echo $?
+```
+
+It demonstrates matrix values in setup hooks, normal steps, cleanup hooks, and `if` conditions. It also shows a step-level environment override of `MATRIX_RUBY`.
+
+Run the partial-failure matrix example:
+
+```bash
+bundle exec bin/mini-ci run examples/matrix-partial-failure-pipeline.yml
+echo $?
+```
+
+It makes exactly one combination fail, continues running later jobs, runs cleanup for the failed job, and exits with status `1`.
+
 ## Version And Help
 
 Show the installed version:
@@ -736,7 +877,7 @@ bundle exec bin/mini-ci version
 Example output:
 
 ```text
-Mini CI 0.9.0
+Mini CI 0.10.0
 ```
 
 Show help:
@@ -792,6 +933,8 @@ Run `mini-ci help` for usage information.
 ## Current Limitations
 
 - Steps run one at a time.
+- Matrix jobs run one at a time.
+- Matrix runs are fail-late: one failed job does not stop later jobs.
 - Later configured items are evaluated after failure, but only supported `when` and `if` rules are available.
 - Cleanup hooks still run after setup or main-step failures.
 - Cleanup hooks keep running after cleanup failures.
@@ -799,8 +942,8 @@ Run `mini-ci help` for usage information.
 - No secrets management or secret masking.
 - No `.env` file support.
 - Timeout process-group termination is currently intended for Unix-like systems.
-- No parallel execution, Docker, deployment, frontend, or database support.
+- No parallel matrix execution, artifacts, caching, plugins, Docker, deployment, frontend, or database support.
 
 ## Next Milestone
 
-The next planned milestone adds matrix builds.
+The next planned milestone adds parallel matrix execution.

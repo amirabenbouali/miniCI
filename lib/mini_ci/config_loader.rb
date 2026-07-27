@@ -3,6 +3,8 @@
 require "yaml"
 
 require_relative "condition_parser"
+require_relative "matrix_definition"
+require_relative "matrix_expander"
 
 module MiniCi
   class ConfigLoader
@@ -11,7 +13,7 @@ module MiniCi
     ENV_NAME_PATTERN = /\A[A-Za-z_][A-Za-z0-9_]*\z/
     VALID_WHEN_POLICIES = ["success", "failure", "always", "never"].freeze
 
-    Configuration = Struct.new(:name, :before_all, :steps, :after_all, :env, keyword_init: true)
+    Configuration = Struct.new(:name, :before_all, :steps, :after_all, :env, :matrix, :name_explicit, keyword_init: true)
 
     def initialize(path: DEFAULT_CONFIG_FILE)
       @path = path
@@ -37,9 +39,37 @@ module MiniCi
 
     def parse_yaml(file_path)
       content = File.read(file_path)
+      reject_duplicate_yaml_keys(content, file_path)
       YAML.safe_load(content, aliases: false)
     rescue Psych::SyntaxError, Psych::AliasesNotEnabled, Psych::DisallowedClass => e
       raise ConfigurationError, "Invalid YAML in #{File.basename(file_path)}: #{e.message}"
+    end
+
+    def reject_duplicate_yaml_keys(content, file_path)
+      tree = Psych.parse_stream(content, filename: file_path)
+      tree.children.each do |document|
+        check_mapping_keys(document.root) if document.root
+      end
+    end
+
+    def check_mapping_keys(node)
+      if node.is_a?(Psych::Nodes::Mapping)
+        seen_keys = {}
+
+        node.children.each_slice(2) do |key_node, value_node|
+          if key_node.is_a?(Psych::Nodes::Scalar)
+            if seen_keys.key?(key_node.value)
+              raise ConfigurationError, "Invalid pipeline configuration: duplicate key #{key_node.value.inspect}"
+            end
+
+            seen_keys[key_node.value] = true
+          end
+
+          check_mapping_keys(value_node)
+        end
+      elsif node.respond_to?(:children)
+        Array(node.children).each { |child| check_mapping_keys(child) }
+      end
     end
 
     def validate_and_build(data)
@@ -47,24 +77,33 @@ module MiniCi
         raise ConfigurationError, "Invalid pipeline configuration: expected a mapping at the top level"
       end
 
-      pipeline_name = extract_pipeline_name(data)
+      pipeline_name, name_explicit = extract_pipeline_name(data)
       env = build_env(data.fetch("env", nil), "global env")
+      matrix = build_matrix(data.fetch("matrix", nil))
       before_all = build_hooks(data.fetch("before_all", nil), "before_all")
       steps = build_steps(data.fetch("steps", nil))
       after_all = build_hooks(data.fetch("after_all", nil), "after_all")
 
-      Configuration.new(name: pipeline_name, before_all: before_all, steps: steps, after_all: after_all, env: env)
+      Configuration.new(
+        name: pipeline_name,
+        before_all: before_all,
+        steps: steps,
+        after_all: after_all,
+        env: env,
+        matrix: matrix,
+        name_explicit: name_explicit
+      )
     end
 
     def extract_pipeline_name(data)
       name = data["name"]
 
       if name.nil? || (name.is_a?(String) && name.strip.empty?)
-        DEFAULT_PIPELINE_NAME
+        [DEFAULT_PIPELINE_NAME, false]
       elsif !name.is_a?(String)
         raise ConfigurationError, 'Invalid pipeline configuration: "name" must be a string'
       else
-        name
+        [name, true]
       end
     end
 
@@ -170,6 +209,56 @@ module MiniCi
       ConditionParser.new.parse(value)
     rescue ArgumentError => e
       raise ConfigurationError, "Invalid pipeline configuration: #{label} #{e.message}"
+    end
+
+    def build_matrix(matrix_data)
+      return nil if matrix_data.nil?
+
+      unless matrix_data.is_a?(Hash)
+        raise ConfigurationError, "Invalid pipeline configuration: matrix must be a mapping"
+      end
+
+      if matrix_data.empty?
+        raise ConfigurationError, "Invalid pipeline configuration: matrix must not be empty"
+      end
+
+      dimensions = matrix_data.each_with_object({}) do |(key, values), matrix|
+        matrix_key = validate_matrix_key(key)
+        matrix[matrix_key] = build_matrix_values(matrix_key, values)
+      end
+
+      definition = MatrixDefinition.new(dimensions)
+      if definition.total_combination_count > MatrixExpander::MAX_JOBS
+        raise ConfigurationError, "Invalid pipeline configuration: matrix expands to #{definition.total_combination_count} jobs, exceeding the limit of #{MatrixExpander::MAX_JOBS}"
+      end
+
+      definition
+    end
+
+    def validate_matrix_key(key)
+      unless key.is_a?(String) && key.match?(ENV_NAME_PATTERN)
+        raise ConfigurationError, "Invalid pipeline configuration: matrix key #{key.inspect} is invalid"
+      end
+
+      key
+    end
+
+    def build_matrix_values(key, values)
+      unless values.is_a?(Array)
+        raise ConfigurationError, "Invalid pipeline configuration: matrix value list for #{key.inspect} must be an array"
+      end
+
+      if values.empty?
+        raise ConfigurationError, "Invalid pipeline configuration: matrix value list for #{key.inspect} must not be empty"
+      end
+
+      values.each_with_index.map do |value, index|
+        if value.nil? || value.is_a?(Array) || value.is_a?(Hash)
+          raise ConfigurationError, "Invalid pipeline configuration: matrix value #{index + 1} for #{key.inspect} must be a scalar"
+        end
+
+        value.to_s
+      end.freeze
     end
 
     def build_env(env_data, label)

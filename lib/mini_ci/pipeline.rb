@@ -11,7 +11,8 @@ module MiniCi
       command_runner: CommandRunner.new,
       reporter: Reporter.new,
       clock: -> { Process.clock_gettime(Process::CLOCK_MONOTONIC) },
-      sleeper: ->(seconds) { sleep(seconds) }
+      sleeper: ->(seconds) { sleep(seconds) },
+      announce_header: true
     )
       @name = validate_name(name)
       @before_all = validate_steps(before_all, "before_all hooks")
@@ -22,10 +23,11 @@ module MiniCi
       @reporter = reporter
       @clock = clock
       @sleeper = sleeper
+      @announce_header = announce_header
     end
 
     def run
-      @reporter.header(@name)
+      @reporter.header(@name) if @announce_header
 
       pipeline_started_at = @clock.call
       before_all_results = []

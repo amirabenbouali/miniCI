@@ -64,6 +64,18 @@ module MiniCi
       @output.puts "Retrying in #{format_duration(delay)}..."
     end
 
+    def matrix_job_started(index:, total:, display_name:)
+      @output.puts "Matrix job #{index}/#{total}"
+      @output.puts display_name
+      @output.puts
+    end
+
+    def matrix_job_finished(job_result)
+      @output.puts "Job status: #{job_result.success? ? "PASSED" : "FAILED"}"
+      @output.puts "Duration: #{format_duration(job_result.pipeline_result.total_duration)}"
+      @output.puts
+    end
+
     def summary(pipeline_result)
       @output.puts "Pipeline summary"
       @output.puts
@@ -75,6 +87,25 @@ module MiniCi
       @output.puts "Attempts: #{pipeline_result.total_attempts}"
       @output.puts "Duration: #{format_duration(pipeline_result.total_duration)}"
       print_failures(pipeline_result)
+    end
+
+    def matrix_summary(matrix_run_result)
+      @output.puts "Matrix summary"
+      @output.puts
+
+      matrix_run_result.matrix_job_results.each_with_index do |job_result, index|
+        @output.puts "#{index + 1}. #{job_result.combination.label}"
+        @output.puts "   #{job_result.success? ? "PASSED" : "FAILED"} — #{format_duration(job_result.pipeline_result.total_duration)}"
+        if job_result.pipeline_result.primary_failure
+          @output.puts "   Failure: #{failure_line(job_result.pipeline_result.primary_failure)}"
+        end
+        @output.puts
+      end
+
+      @output.puts "Overall status: #{matrix_run_result.success? ? "PASSED" : "FAILED"}"
+      @output.puts "Jobs: #{matrix_run_result.passed_job_count} passed, #{matrix_run_result.failed_job_count} failed, #{matrix_run_result.job_count} total"
+      @output.puts "Attempts: #{matrix_run_result.total_attempts}"
+      @output.puts "Duration: #{format_duration(matrix_run_result.total_duration)}"
     end
 
     private

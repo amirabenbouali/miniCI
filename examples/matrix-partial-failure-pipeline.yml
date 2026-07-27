@@ -1,0 +1,18 @@
+name: Partial Failure Matrix
+
+matrix:
+  ruby:
+    - "3.2"
+    - "3.3"
+
+  database:
+    - sqlite
+    - postgres
+
+steps:
+  - name: Matrix check
+    run: bash scripts/matrix_check.sh
+
+after_all:
+  - name: Cleanup after matrix job
+    run: bash -c 'echo "cleanup for ${MATRIX_RUBY}/${MATRIX_DATABASE}"'

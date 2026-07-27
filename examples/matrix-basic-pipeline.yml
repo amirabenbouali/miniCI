@@ -1,0 +1,14 @@
+name: Basic Matrix
+
+matrix:
+  ruby:
+    - "3.2"
+    - "3.3"
+
+  database:
+    - sqlite
+    - postgres
+
+steps:
+  - name: Print matrix values
+    run: ruby -e 'puts "ruby=#{ENV.fetch("MATRIX_RUBY")} database=#{ENV.fetch("MATRIX_DATABASE")}"'
