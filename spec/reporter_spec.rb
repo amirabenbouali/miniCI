@@ -374,6 +374,35 @@ RSpec.describe MiniCi::Reporter do
     expect(output.string).to include("Duration:")
   end
 
+  it "prints matrix concurrency details" do
+    output = StringIO.new
+
+    reporter_with(output).matrix_run_started(job_count: 4, requested_concurrency: 4, actual_worker_count: 2)
+
+    expect(output.string).to include("Matrix jobs: 4")
+    expect(output.string).to include("Concurrency: 2")
+    expect(output.string).to include("Requested concurrency: 4")
+    expect(output.string).to include("Execution: parallel")
+  end
+
+  it "prints completed matrix job blocks" do
+    output = StringIO.new
+    completed_job = MiniCi::MatrixRunner::CompletedJob.new(
+      index: 1,
+      total: 4,
+      display_name: "Ruby Matrix [ruby=3.3]",
+      job_result: matrix_job_result(success: true),
+      output: "buffered output\n"
+    )
+
+    reporter_with(output).matrix_job_completed(completed_job)
+
+    expect(output.string).to include("Matrix job 2/4 completed")
+    expect(output.string).to include("Ruby Matrix [ruby=3.3]")
+    expect(output.string).to include("Status: PASSED")
+    expect(output.string).to include("buffered output")
+  end
+
   it "prints matrix aggregate summary" do
     output = StringIO.new
     result = MiniCi::MatrixRunResult.new(
@@ -390,5 +419,7 @@ RSpec.describe MiniCi::Reporter do
     expect(output.string).to include("Overall status: FAILED")
     expect(output.string).to include("Jobs: 1 passed, 1 failed, 2 total")
     expect(output.string).to include("Failure:")
+    expect(output.string).to include("Wall-clock duration:")
+    expect(output.string).to include("Combined job time:")
   end
 end

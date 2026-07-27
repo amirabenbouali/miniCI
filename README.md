@@ -1,10 +1,10 @@
 # Mini CI
 
-Mini CI is a lightweight local CI/CD pipeline runner written primarily in Ruby. It loads pipeline steps and hooks from a YAML configuration file, runs shell commands one after another on your local machine, records durations, and prints a final execution summary.
+Mini CI is a lightweight local CI/CD pipeline runner written primarily in Ruby. It loads pipeline steps and hooks from a YAML configuration file, runs shell commands on your local machine, records durations, and prints a final execution summary.
 
 ## Current Milestone
 
-Mini CI v0.10 supports:
+Mini CI v0.11 supports:
 
 - loading pipeline steps from `pipeline.yml`;
 - loading a custom pipeline configuration path;
@@ -16,7 +16,9 @@ Mini CI v0.10 supports:
 - environment-variable `if` conditions;
 - structured skipped results and skipped counts;
 - matrix builds with deterministic Cartesian-product expansion;
-- sequential matrix job execution with fail-late aggregate results;
+- parallel matrix job execution with a bounded worker pool;
+- buffered per-job matrix output;
+- fail-late matrix aggregate results;
 - pipeline-level and step-level environment variables;
 - step-level environment variables overriding global values;
 - optional per-step command timeouts;
@@ -29,7 +31,7 @@ Mini CI v0.10 supports:
 - continuing to evaluate later configured items after failures;
 - returning a non-zero application exit status when the pipeline fails.
 
-It does not yet support parallel matrix execution, artifacts, caching, plugins, secrets management, `.env` files, Docker, deployment logic, a web frontend, a database, or external APIs.
+It does not yet support artifacts, caching, plugins, secrets management, `.env` files, Docker, deployment logic, a web frontend, a database, or external APIs.
 
 ## Requirements
 
@@ -80,7 +82,7 @@ bundle exec bin/mini-ci
 
 | Command | Description | Example |
 | --- | --- | --- |
-| `run [FILE]` | Execute a pipeline | `bundle exec bin/mini-ci run` |
+| `run [FILE] [--concurrency N]` | Execute a pipeline | `bundle exec bin/mini-ci run examples/matrix-parallel-pipeline.yml --concurrency 4` |
 | `validate [FILE]` | Validate a pipeline configuration without running commands | `bundle exec bin/mini-ci validate` |
 | `list [FILE]` | Display configured pipeline steps without running commands | `bundle exec bin/mini-ci list` |
 | `version` | Display the installed version | `bundle exec bin/mini-ci version` |
@@ -114,6 +116,22 @@ steps:
     env:
       SHARED_VALUE: step
       FEATURE_FLAG: enabled
+```
+
+Matrix pipelines may also set top-level concurrency:
+
+```yaml
+name: Parallel Matrix Example
+concurrency: 2
+
+matrix:
+  job:
+    - alpha
+    - beta
+
+steps:
+  - name: Parallel check
+    run: bash scripts/matrix_parallel_check.sh
 ```
 
 ### Hooks
@@ -251,7 +269,7 @@ This generates four jobs in deterministic Cartesian-product order:
 4. ruby=3.3, database=postgres
 ```
 
-Mini CI preserves matrix key order from the YAML file and value order within each matrix array. Jobs run sequentially in this milestone.
+Mini CI preserves matrix key order from the YAML file and value order within each matrix array. Matrix jobs run through a fixed-size worker pool. Jobs may finish in any order, but the final summary always follows the deterministic expansion order.
 
 Matrix values are exposed as environment variables by uppercasing the key and adding the `MATRIX_` prefix:
 
@@ -301,6 +319,42 @@ Ruby Matrix Example [ruby=3.2, database=sqlite]
 
 Mini CI rejects matrix definitions that expand beyond `256` jobs to avoid accidental huge runs.
 
+### Matrix Concurrency
+
+Matrix pipelines can define:
+
+```yaml
+concurrency: 2
+```
+
+`concurrency` must be a positive integer and may not exceed `32`. When omitted, Mini CI chooses an automatic value based on available processors, capped by the number of generated jobs and the maximum of `32`. Non-matrix pipelines still run directly without using the matrix worker pool.
+
+The CLI can override YAML concurrency:
+
+```bash
+bundle exec bin/mini-ci run examples/matrix-parallel-pipeline.yml --concurrency 4
+bundle exec bin/mini-ci run examples/matrix-parallel-pipeline.yml -j 4
+```
+
+Precedence is:
+
+```text
+CLI override
+YAML concurrency
+automatic default
+```
+
+Each matrix job receives its own pipeline instance, command runner, reporter, output buffer, effective environment, timeout handling, retry state, and failure state. Mini CI does not mutate global `ENV` and does not temporarily replace global `$stdout` or `$stderr`.
+
+Command and reporter output is buffered per matrix job. Mini CI prints each completed job as one contiguous block, so output from concurrent jobs does not interleave. Completed job blocks are printed as jobs finish, while the final matrix summary remains in expansion order.
+
+Matrix summary duration has two meanings:
+
+- `Wall-clock duration` is the elapsed runtime of the whole matrix run.
+- `Combined job time` is the sum of individual job durations.
+
+Timeouts remain scoped to the command process group for that job. A timed-out matrix job should not signal another matrix job's process group.
+
 ### Custom Configuration Path
 
 You can pass an optional file path to load a different configuration:
@@ -343,6 +397,8 @@ Mini CI validates the configuration before running any commands. It raises clear
 - `timeout` values that are zero, negative, or non-finite;
 - `retries` values that are negative, decimal numbers, strings, booleans, null, arrays, or mappings;
 - `retry_delay` values that are negative, strings, booleans, null, arrays, mappings, or non-finite.
+- `concurrency` values that are zero, negative, decimal numbers, strings, booleans, null, arrays, or mappings;
+- `concurrency` values greater than `32`;
 - `when` values other than `success`, `failure`, `always`, or `never`;
 - `if` values that are blank, non-strings, or outside the supported grammar.
 - `matrix` values that are not mappings or are empty;
@@ -504,6 +560,7 @@ Example output:
 Pipeline configuration is valid.
 
 Name: Environment Example
+Configured concurrency: automatic
 Before-all hooks: 0
 Steps: 2
 After-all hooks: 0
@@ -579,6 +636,8 @@ Matrix pipelines show dimensions, generated job counts, and combinations for sma
 
 ```text
 Basic Matrix
+
+Concurrency: automatic
 
 Matrix:
   ruby: 3.2, 3.3
@@ -846,7 +905,7 @@ bundle exec bin/mini-ci run examples/matrix-basic-pipeline.yml
 echo $?
 ```
 
-It generates four jobs, runs them sequentially, and exits with status `0` when every job passes.
+It generates four jobs, runs them with the resolved matrix concurrency, and exits with status `0` when every job passes.
 
 Run the conditional matrix example:
 
@@ -866,6 +925,54 @@ echo $?
 
 It makes exactly one combination fail, continues running later jobs, runs cleanup for the failed job, and exits with status `1`.
 
+## Parallel Matrix Example Pipelines
+
+Validate and list the parallel matrix example:
+
+```bash
+bundle exec bin/mini-ci validate examples/matrix-parallel-pipeline.yml
+bundle exec bin/mini-ci list examples/matrix-parallel-pipeline.yml
+```
+
+Run it with YAML concurrency:
+
+```bash
+bundle exec bin/mini-ci run examples/matrix-parallel-pipeline.yml
+echo $?
+```
+
+Run it with a CLI concurrency override:
+
+```bash
+bundle exec bin/mini-ci run examples/matrix-parallel-pipeline.yml --concurrency 4
+echo $?
+```
+
+Run it sequentially for comparison:
+
+```bash
+bundle exec bin/mini-ci run examples/matrix-parallel-pipeline.yml -j 1
+echo $?
+```
+
+Run the parallel failure example:
+
+```bash
+bundle exec bin/mini-ci run examples/matrix-parallel-failure-pipeline.yml
+echo $?
+```
+
+It fails one matrix job, continues all later jobs, runs cleanup for every job, and exits with status `1`.
+
+Run the timeout example:
+
+```bash
+bundle exec bin/mini-ci run examples/matrix-parallel-timeout-pipeline.yml
+echo $?
+```
+
+It demonstrates one timed-out matrix job while another job finishes normally.
+
 ## Version And Help
 
 Show the installed version:
@@ -877,7 +984,7 @@ bundle exec bin/mini-ci version
 Example output:
 
 ```text
-Mini CI 0.10.0
+Mini CI 0.11.0
 ```
 
 Show help:
@@ -915,6 +1022,7 @@ Mini CI uses process exit codes to report pipeline success or failure:
 - exit code `0` — the command completed successfully;
 - exit code `1` — pipeline execution failed;
 - exit code `2` — configuration or CLI usage error.
+- exit code `3` — internal Mini CI execution error.
 
 Configuration errors are printed to standard error:
 
@@ -932,8 +1040,8 @@ Run `mini-ci help` for usage information.
 
 ## Current Limitations
 
-- Steps run one at a time.
-- Matrix jobs run one at a time.
+- Steps within one pipeline job run one at a time.
+- Matrix jobs can run concurrently, but only on the local machine.
 - Matrix runs are fail-late: one failed job does not stop later jobs.
 - Later configured items are evaluated after failure, but only supported `when` and `if` rules are available.
 - Cleanup hooks still run after setup or main-step failures.
@@ -942,8 +1050,8 @@ Run `mini-ci help` for usage information.
 - No secrets management or secret masking.
 - No `.env` file support.
 - Timeout process-group termination is currently intended for Unix-like systems.
-- No parallel matrix execution, artifacts, caching, plugins, Docker, deployment, frontend, or database support.
+- No artifacts, caching, plugins, Docker, deployment, frontend, or database support.
 
 ## Next Milestone
 
-The next planned milestone adds parallel matrix execution.
+The next planned milestone adds artifacts.

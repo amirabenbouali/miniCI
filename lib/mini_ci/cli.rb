@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "command_runner"
+require_relative "concurrency_config"
 require_relative "config_loader"
 require_relative "errors"
 require_relative "matrix_expander"
@@ -17,6 +18,7 @@ module MiniCi
     SUCCESS = 0
     PIPELINE_FAILURE = 1
     USAGE_ERROR = 2
+    INTERNAL_ERROR = 3
 
     HELP_COMMANDS = ["help", "--help", "-h"].freeze
 
@@ -49,6 +51,9 @@ module MiniCi
     rescue UsageError => e
       print_error(e.message)
       USAGE_ERROR
+    rescue InternalError => e
+      print_error(e.message)
+      INTERNAL_ERROR
     end
 
     private
@@ -60,7 +65,7 @@ module MiniCi
         Mini CI
 
         Usage:
-          mini-ci run [FILE]
+          mini-ci run [FILE] [--concurrency N]
           mini-ci validate [FILE]
           mini-ci list [FILE]
           mini-ci version
@@ -80,7 +85,7 @@ module MiniCi
     end
 
     def run_pipeline(arguments)
-      config_path = config_path_from(arguments, "run")
+      config_path, concurrency_override = run_options_from(arguments)
       config = load_config(config_path)
       if config.matrix
         result = MatrixRunner.new(
@@ -91,6 +96,7 @@ module MiniCi
           steps: config.steps,
           after_all: config.after_all,
           env: config.env,
+          concurrency: concurrency_override || config.concurrency,
           reporter: Reporter.new(output: @output)
         ).run
 
@@ -116,6 +122,7 @@ module MiniCi
       @output.puts "Pipeline configuration is valid."
       @output.puts
       @output.puts "Name: #{config.name}"
+      print_concurrency_validation(config.concurrency)
       print_matrix_validation(config.matrix) if config.matrix
       @output.puts "Before-all hooks: #{config.before_all.length}"
       @output.puts "Steps: #{config.steps.length}"
@@ -135,6 +142,7 @@ module MiniCi
       @output.puts
 
       print_global_environment(config.env)
+      print_concurrency(config.concurrency)
       print_matrix(config.matrix) if config.matrix
 
       print_phase("Before all", config.before_all)
@@ -176,6 +184,35 @@ module MiniCi
       arguments.fetch(0, ConfigLoader::DEFAULT_CONFIG_FILE)
     end
 
+    def run_options_from(arguments)
+      remaining = arguments.dup
+      concurrency = nil
+
+      index = 0
+      while index < remaining.length
+        argument = remaining[index]
+        if argument == "--concurrency" || argument == "-j"
+          value = remaining[index + 1]
+          raise UsageError, "#{argument} requires a value" unless value
+
+          concurrency = parse_concurrency_override(value)
+          remaining.slice!(index, 2)
+        else
+          index += 1
+        end
+      end
+
+      [config_path_from(remaining, "run"), concurrency]
+    end
+
+    def parse_concurrency_override(value)
+      unless value.match?(/\A[1-9][0-9]*\z/)
+        raise UsageError, "concurrency must be a positive integer"
+      end
+
+      ConcurrencyConfig.new(value.to_i)
+    end
+
     def reject_extra_arguments!(command, arguments)
       return if arguments.empty?
 
@@ -195,6 +232,15 @@ module MiniCi
     def print_matrix_validation(matrix)
       @output.puts "Matrix dimensions: #{matrix.dimension_count}"
       @output.puts "Generated jobs: #{matrix.total_combination_count}"
+    end
+
+    def print_concurrency_validation(concurrency)
+      @output.puts "Configured concurrency: #{concurrency.automatic? ? "automatic" : concurrency.value}"
+    end
+
+    def print_concurrency(concurrency)
+      @output.puts "Concurrency: #{concurrency.automatic? ? "automatic" : concurrency.value}"
+      @output.puts
     end
 
     def print_matrix(matrix)

@@ -143,6 +143,24 @@ RSpec.describe MiniCi::CommandRunner do
     FileUtils.rm_f(path) if path
   end
 
+  it "writes command output to injected destinations" do
+    stdout = Tempfile.new("mini-ci-stdout")
+    stderr = Tempfile.new("mini-ci-stderr")
+
+    result = described_class.new(stdout: stdout, stderr: stderr).run(
+      "ruby -e '$stdout.puts \"out\"; $stderr.puts \"err\"'"
+    )
+
+    stdout.rewind
+    stderr.rewind
+    expect(result).to be_success
+    expect(stdout.read).to include("out")
+    expect(stderr.read).to include("err")
+  ensure
+    stdout&.close!
+    stderr&.close!
+  end
+
   it "terminates child processes when the parent shell times out" do
     directory = Dir.mktmpdir
     child_pid_file = File.join(directory, "child.pid")

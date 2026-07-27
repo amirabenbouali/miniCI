@@ -359,6 +359,14 @@ RSpec.describe MiniCi::CLI do
       expect(stderr).to be_empty
     end
 
+    it "displays configured concurrency" do
+      exit_code, stdout, stderr = run_cli(["validate", "examples/matrix-parallel-pipeline.yml"])
+
+      expect(exit_code).to eq(0)
+      expect(stdout).to include("Configured concurrency: 2")
+      expect(stderr).to be_empty
+    end
+
     it "returns a configuration error for malformed matrices" do
       path, directory = write_temp_config(<<~YAML)
         name: Bad Matrix
@@ -484,6 +492,14 @@ RSpec.describe MiniCi::CLI do
       expect(stdout).to include("Generated jobs: 4")
       expect(stdout).to include("1. ruby=3.2, database=sqlite")
       expect(stdout).to include("4. ruby=3.3, database=postgres")
+      expect(stderr).to be_empty
+    end
+
+    it "displays concurrency" do
+      exit_code, stdout, stderr = run_cli(["list", "examples/matrix-parallel-pipeline.yml"])
+
+      expect(exit_code).to eq(0)
+      expect(stdout).to include("Concurrency: 2")
       expect(stderr).to be_empty
     end
 
@@ -706,6 +722,52 @@ RSpec.describe MiniCi::CLI do
       expect(stdout).to include("Matrix job 4/4")
       expect(stdout).to include("Cleanup after matrix job")
       expect(stdout).to include("Jobs: 3 passed, 1 failed, 4 total")
+    end
+
+    it "honours YAML concurrency for matrix pipelines" do
+      exit_code, stdout, stderr = run_cli(["run", "examples/matrix-parallel-pipeline.yml"])
+
+      expect(exit_code).to eq(0)
+      expect(stdout).to include("Matrix jobs: 8")
+      expect(stdout).to include("Concurrency: 2")
+      expect(stdout).to include("Execution: parallel")
+      expect(stdout).to include("Jobs: 8 passed, 0 failed, 8 total")
+      expect(stderr).to be_empty
+    end
+
+    it "allows a CLI concurrency override" do
+      exit_code, stdout, stderr = run_cli(["run", "examples/matrix-parallel-pipeline.yml", "--concurrency", "4"])
+
+      expect(exit_code).to eq(0)
+      expect(stdout).to include("Concurrency: 4")
+      expect(stderr).to be_empty
+    end
+
+    it "supports -j as a concurrency override" do
+      exit_code, stdout, stderr = run_cli(["run", "examples/matrix-parallel-pipeline.yml", "-j", "1"])
+
+      expect(exit_code).to eq(0)
+      expect(stdout).to include("Execution: sequential")
+      expect(stdout).to include("Concurrency: 1")
+      expect(stderr).to be_empty
+    end
+
+    it "rejects invalid CLI concurrency" do
+      exit_code, stdout, stderr = run_cli(["run", "examples/matrix-parallel-pipeline.yml", "--concurrency", "1.5"])
+
+      expect(exit_code).to eq(2)
+      expect(stdout).to be_empty
+      expect(stderr).to include("Mini CI error: concurrency must be a positive integer")
+    end
+
+    it "returns 1 for the parallel failure example and keeps running later jobs" do
+      exit_code, stdout, = run_cli(["run", "examples/matrix-parallel-failure-pipeline.yml"])
+
+      expect(exit_code).to eq(1)
+      expect(stdout).to include("Intentional parallel failure")
+      expect(stdout).to include("Matrix job 3")
+      expect(stdout).to include("cleanup for beta")
+      expect(stdout).to include("Jobs: 2 passed, 1 failed, 3 total")
     end
   end
 

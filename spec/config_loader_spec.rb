@@ -80,6 +80,35 @@ RSpec.describe MiniCi::ConfigLoader do
       FileUtils.remove_entry(directory)
     end
 
+    it "uses automatic concurrency when concurrency is omitted" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+      YAML
+
+      config = loader_for(path).load
+
+      expect(config.concurrency).to be_automatic
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "loads valid concurrency" do
+      path, directory = write_config(<<~YAML)
+        concurrency: 4
+        steps:
+          - name: Step
+            run: echo hi
+      YAML
+
+      config = loader_for(path).load
+
+      expect(config.concurrency.value).to eq(4)
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
     it "uses an empty global environment when env is omitted" do
       path, directory = write_config(<<~YAML)
         steps:
@@ -836,6 +865,44 @@ RSpec.describe MiniCi::ConfigLoader do
 
       expect { loader_for(path).load }
         .to raise_error(MiniCi::ConfigurationError, /exceeding the limit of 256/)
+    ensure
+      FileUtils.remove_entry(directory) if directory && File.exist?(directory)
+    end
+
+    it "rejects invalid concurrency values" do
+      [
+        "concurrency: 0",
+        "concurrency: -1",
+        "concurrency: 1.5",
+        "concurrency: \"2\"",
+        "concurrency: true",
+        "concurrency:",
+        "concurrency: [1]",
+        "concurrency:\n  value: 2"
+      ].each do |concurrency_yaml|
+        path, directory = write_config(<<~YAML)
+          #{concurrency_yaml}
+          steps:
+            - name: Step
+              run: echo step
+        YAML
+
+        expect { loader_for(path).load }
+          .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: concurrency must be a positive integer")
+        FileUtils.remove_entry(directory)
+      end
+    end
+
+    it "rejects concurrency above the maximum" do
+      path, directory = write_config(<<~YAML)
+        concurrency: 64
+        steps:
+          - name: Step
+            run: echo step
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: concurrency 64 exceeds the maximum of 32")
     ensure
       FileUtils.remove_entry(directory) if directory && File.exist?(directory)
     end

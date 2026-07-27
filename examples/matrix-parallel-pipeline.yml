@@ -1,0 +1,18 @@
+name: Parallel Matrix
+
+concurrency: 2
+
+matrix:
+  job:
+    - alpha
+    - beta
+    - gamma
+    - delta
+
+  delay:
+    - "0.1"
+    - "0.2"
+
+steps:
+  - name: Parallel check
+    run: bash scripts/matrix_parallel_check.sh

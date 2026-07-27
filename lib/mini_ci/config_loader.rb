@@ -3,6 +3,7 @@
 require "yaml"
 
 require_relative "condition_parser"
+require_relative "concurrency_config"
 require_relative "matrix_definition"
 require_relative "matrix_expander"
 
@@ -13,7 +14,7 @@ module MiniCi
     ENV_NAME_PATTERN = /\A[A-Za-z_][A-Za-z0-9_]*\z/
     VALID_WHEN_POLICIES = ["success", "failure", "always", "never"].freeze
 
-    Configuration = Struct.new(:name, :before_all, :steps, :after_all, :env, :matrix, :name_explicit, keyword_init: true)
+    Configuration = Struct.new(:name, :before_all, :steps, :after_all, :env, :matrix, :concurrency, :name_explicit, keyword_init: true)
 
     def initialize(path: DEFAULT_CONFIG_FILE)
       @path = path
@@ -80,6 +81,7 @@ module MiniCi
       pipeline_name, name_explicit = extract_pipeline_name(data)
       env = build_env(data.fetch("env", nil), "global env")
       matrix = build_matrix(data.fetch("matrix", nil))
+      concurrency = build_concurrency(data)
       before_all = build_hooks(data.fetch("before_all", nil), "before_all")
       steps = build_steps(data.fetch("steps", nil))
       after_all = build_hooks(data.fetch("after_all", nil), "after_all")
@@ -91,6 +93,7 @@ module MiniCi
         after_all: after_all,
         env: env,
         matrix: matrix,
+        concurrency: concurrency,
         name_explicit: name_explicit
       )
     end
@@ -233,6 +236,17 @@ module MiniCi
       end
 
       definition
+    end
+
+    def build_concurrency(data)
+      return ConcurrencyConfig.new(nil) unless data.key?("concurrency")
+
+      value = data["concurrency"]
+      if value.nil?
+        raise ConfigurationError, "Invalid pipeline configuration: concurrency must be a positive integer"
+      end
+
+      ConcurrencyConfig.new(value)
     end
 
     def validate_matrix_key(key)

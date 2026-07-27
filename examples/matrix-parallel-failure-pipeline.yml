@@ -1,0 +1,17 @@
+name: Parallel Matrix Failure
+
+concurrency: 2
+
+matrix:
+  job:
+    - alpha
+    - beta
+    - gamma
+
+steps:
+  - name: Parallel failure check
+    run: bash -c 'if [ "$MATRIX_JOB" = "beta" ]; then echo "Intentional parallel failure"; exit 1; fi; MATRIX_DELAY=0.1 bash scripts/matrix_parallel_check.sh'
+
+after_all:
+  - name: Parallel cleanup
+    run: bash -c 'echo "cleanup for ${MATRIX_JOB}"'

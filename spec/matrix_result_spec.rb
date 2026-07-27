@@ -70,4 +70,22 @@ RSpec.describe "matrix result models" do
     expect(failed_job).to be_failed
     expect(failed_job.matrix_values).to eq("ruby" => "3.3")
   end
+
+  it "stores concurrency metadata and combined job duration" do
+    result = MiniCi::MatrixRunResult.new(
+      matrix_job_results: [
+        job(values: { "ruby" => "3.2" }, success: true),
+        job(values: { "ruby" => "3.3" }, success: true)
+      ],
+      total_duration: 0.25,
+      requested_concurrency: 4,
+      actual_worker_count: 2
+    )
+
+    expect(result.requested_concurrency).to eq(4)
+    expect(result.actual_worker_count).to eq(2)
+    expect(result).to be_parallel
+    expect(result.total_duration).to eq(0.25)
+    expect(result.sum_of_job_durations).to eq(0.4)
+  end
 end

@@ -8,4 +8,6 @@ module MiniCi
   class FileNotFoundError < Error; end
 
   class UsageError < Error; end
+
+  class InternalError < Error; end
 end

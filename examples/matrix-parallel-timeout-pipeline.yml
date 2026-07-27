@@ -1,0 +1,13 @@
+name: Parallel Matrix Timeout
+
+concurrency: 2
+
+matrix:
+  job:
+    - fast
+    - slow
+
+steps:
+  - name: Parallel timeout check
+    run: bash -c 'if [ "$MATRIX_JOB" = "slow" ]; then MATRIX_DELAY=1 bash scripts/matrix_parallel_check.sh; else MATRIX_DELAY=0.1 bash scripts/matrix_parallel_check.sh; fi'
+    timeout: 0.3

@@ -76,6 +76,30 @@ module MiniCi
       @output.puts
     end
 
+    def matrix_run_started(job_count:, requested_concurrency:, actual_worker_count:)
+      @output.puts "Matrix jobs: #{job_count}"
+      @output.puts "Concurrency: #{actual_worker_count}"
+      @output.puts "Requested concurrency: #{requested_concurrency}" if requested_concurrency != actual_worker_count
+      @output.puts "Execution: #{actual_worker_count > 1 ? "parallel" : "sequential"}"
+      @output.puts
+    end
+
+    def matrix_job_completed(completed_job)
+      @output.puts "----------------------------------------"
+      @output.puts
+      @output.puts "Matrix job #{completed_job.index + 1}/#{completed_job.total} completed"
+      @output.puts completed_job.display_name
+
+      if completed_job.job_result
+        @output.puts "Status: #{completed_job.job_result.success? ? "PASSED" : "FAILED"}"
+      else
+        @output.puts "Status: INTERNAL ERROR"
+      end
+      @output.puts
+      @output.print completed_job.output
+      @output.puts unless completed_job.output.end_with?("\n")
+    end
+
     def summary(pipeline_result)
       @output.puts "Pipeline summary"
       @output.puts
@@ -104,8 +128,10 @@ module MiniCi
 
       @output.puts "Overall status: #{matrix_run_result.success? ? "PASSED" : "FAILED"}"
       @output.puts "Jobs: #{matrix_run_result.passed_job_count} passed, #{matrix_run_result.failed_job_count} failed, #{matrix_run_result.job_count} total"
+      @output.puts "Concurrency: #{matrix_run_result.actual_worker_count}"
+      @output.puts "Wall-clock duration: #{format_duration(matrix_run_result.total_duration)}"
+      @output.puts "Combined job time: #{format_duration(matrix_run_result.sum_of_job_durations)}"
       @output.puts "Attempts: #{matrix_run_result.total_attempts}"
-      @output.puts "Duration: #{format_duration(matrix_run_result.total_duration)}"
     end
 
     private

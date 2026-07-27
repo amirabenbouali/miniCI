@@ -8,14 +8,18 @@ module MiniCi
     Result = AttemptResult
     TERMINATION_GRACE_SECONDS = 0.5
 
-    def initialize(clock: -> { Process.clock_gettime(Process::CLOCK_MONOTONIC) })
+    def initialize(clock: -> { Process.clock_gettime(Process::CLOCK_MONOTONIC) }, stdout: $stdout, stderr: $stderr)
       @clock = clock
+      @stdout = stdout
+      @stderr = stderr
     end
 
     def run(command, env: {}, timeout: nil, attempt_number: 1)
       started_at = @clock.call
-      pid = Process.spawn(env, command, pgroup: true)
+      flush_output
+      pid = Process.spawn(env, command, pgroup: true, out: @stdout, err: @stderr)
       status = wait_for_process(pid, timeout)
+      flush_output
       finished_at = @clock.call
 
       AttemptResult.new(
@@ -29,6 +33,11 @@ module MiniCi
     end
 
     private
+
+    def flush_output
+      @stdout.flush if @stdout.respond_to?(:flush)
+      @stderr.flush if @stderr.respond_to?(:flush) && @stderr != @stdout
+    end
 
     def wait_for_process(pid, timeout)
       deadline = timeout.nil? ? nil : @clock.call + timeout
