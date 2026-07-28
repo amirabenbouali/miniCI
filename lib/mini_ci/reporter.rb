@@ -29,6 +29,8 @@ module MiniCi
       if step_result.retried?
         @output.puts
         @output.puts "Step failed after #{step_result.attempt_count} attempts."
+      elsif step_result.artifact_failure? && step_result.final_attempt.success?
+        @output.puts "✗ Artifact collection failed"
       elsif step_result.timed_out?
         @output.puts "✗ Timed out after #{format_duration(step_result.timeout)}"
       else
@@ -62,6 +64,21 @@ module MiniCi
 
     def retrying(delay)
       @output.puts "Retrying in #{format_duration(delay)}..."
+    end
+
+    def artifacts(step_result)
+      artifact_result = step_result.artifact_result
+      if artifact_result.failed?
+        @output.puts "Artifacts: collection failed"
+        @output.puts "Reason: #{artifact_result.errors.first}"
+      else
+        @output.puts "Artifacts: #{artifact_result.copied_file_count} files collected"
+        @output.puts "Location: #{artifact_result.destination}"
+        artifact_result.warnings.each do |warning|
+          @output.puts "Warning: #{warning}"
+        end
+      end
+      @output.puts
     end
 
     def matrix_job_started(index:, total:, display_name:)
@@ -109,6 +126,10 @@ module MiniCi
       @output.puts cleanup_summary_line(pipeline_result) if pipeline_result.configured_after_all_count.positive?
       @output.puts "Retried steps: #{pipeline_result.retried_step_count}" if pipeline_result.retried_step_count.positive?
       @output.puts "Attempts: #{pipeline_result.total_attempts}"
+      @output.puts "Artifacts: #{pipeline_result.artifact_count} files" if pipeline_result.artifact_run_directory
+      @output.puts "Artifact warnings: #{pipeline_result.artifact_warning_count}" if pipeline_result.artifact_warning_count.positive?
+      @output.puts "Artifact failures: #{pipeline_result.artifact_failure_count}" if pipeline_result.artifact_failure_count.positive?
+      @output.puts "Artifact location: #{pipeline_result.artifact_run_directory}" if pipeline_result.artifact_run_directory
       @output.puts "Duration: #{format_duration(pipeline_result.total_duration)}"
       print_failures(pipeline_result)
     end
@@ -131,6 +152,12 @@ module MiniCi
       @output.puts "Concurrency: #{matrix_run_result.actual_worker_count}"
       @output.puts "Wall-clock duration: #{format_duration(matrix_run_result.total_duration)}"
       @output.puts "Combined job time: #{format_duration(matrix_run_result.sum_of_job_durations)}"
+      if matrix_run_result.artifact_run_directory
+        @output.puts "Artifacts: #{matrix_run_result.artifact_count} files across #{matrix_run_result.job_count} jobs"
+        @output.puts "Artifact warnings: #{matrix_run_result.artifact_warning_count}" if matrix_run_result.artifact_warning_count.positive?
+        @output.puts "Artifact failures: #{matrix_run_result.artifact_failure_count}" if matrix_run_result.artifact_failure_count.positive?
+        @output.puts "Artifact location: #{matrix_run_result.artifact_run_directory}"
+      end
       @output.puts "Attempts: #{matrix_run_result.total_attempts}"
     end
 
@@ -168,22 +195,42 @@ module MiniCi
       @output.puts "  #{failure_line(pipeline_result.primary_failure)}"
 
       cleanup_failures = pipeline_result.cleanup_failures
-      return if cleanup_failures.empty?
+      unless cleanup_failures.empty?
+        @output.puts
+        @output.puts "Cleanup failures:"
+        cleanup_failures.each do |failure|
+          @output.puts "  #{failure_line(failure)}"
+        end
+      end
+
+      print_artifact_failures(pipeline_result)
+    end
+
+    def print_artifact_failures(pipeline_result)
+      failures = pipeline_result.artifact_failures.reject { |failure| failure.equal?(pipeline_result.primary_failure) }
+      return if failures.empty?
 
       @output.puts
-      @output.puts "Cleanup failures:"
-      cleanup_failures.each do |failure|
+      @output.puts "Artifact failures:"
+      failures.each do |failure|
         @output.puts "  #{failure_line(failure)}"
       end
     end
 
     def failure_line(step_result)
-      if step_result.timed_out?
+      if step_result.artifact_failure? && step_result.final_attempt.success?
+        "Artifact collection for #{step_result.step.name} failed: #{step_result.artifact_result.errors.first}"
+      elsif step_result.timed_out?
         "#{step_result.step.name} timed out after #{format_duration(step_result.timeout)}"
       elsif step_result.retried?
         "#{step_result.step.name} failed after #{step_result.attempt_count} attempts with exit code #{step_result.exit_status}"
       else
-        "#{step_result.step.name} failed with exit code #{step_result.exit_status}"
+        line = "#{step_result.step.name} failed with exit code #{step_result.exit_status}"
+        if step_result.artifact_failure?
+          "#{line}; artifact collection failed: #{step_result.artifact_result.errors.first}"
+        else
+          line
+        end
       end
     end
 

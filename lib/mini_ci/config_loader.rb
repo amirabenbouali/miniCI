@@ -1,7 +1,9 @@
 # frozen_string_literal: true
 
 require "yaml"
+require "pathname"
 
+require_relative "artifact_definition"
 require_relative "condition_parser"
 require_relative "concurrency_config"
 require_relative "matrix_definition"
@@ -162,6 +164,7 @@ module MiniCi
       retry_delay = build_retry_delay(step_data["retry_delay"], label) if step_data.key?("retry_delay")
       when_policy, when_policy_explicit = build_when_policy(step_data, label, default_when_policy)
       condition = build_condition(step_data["if"], label) if step_data.key?("if")
+      artifacts = build_artifacts(step_data["artifacts"], label) if step_data.key?("artifacts")
 
       unless name.is_a?(String) && !name.strip.empty?
         raise ConfigurationError, "Invalid pipeline configuration: #{label} has a blank name"
@@ -180,8 +183,50 @@ module MiniCi
         retry_delay: retry_delay || 0,
         when_policy: when_policy,
         condition: condition,
-        when_policy_explicit: when_policy_explicit
+        when_policy_explicit: when_policy_explicit,
+        artifacts: artifacts
       )
+    end
+
+    def build_artifacts(artifact_data, label)
+      unless artifact_data.is_a?(Hash)
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} artifacts must be a mapping"
+      end
+
+      unknown_fields = artifact_data.keys - ["paths", "when"]
+      unless unknown_fields.empty?
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} artifacts contains unknown field #{unknown_fields.first.inspect}"
+      end
+
+      unless artifact_data.key?("paths")
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} artifacts paths must be a non-empty array"
+      end
+
+      paths = artifact_data["paths"]
+      unless paths.is_a?(Array) && !paths.empty?
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} artifacts paths must be a non-empty array"
+      end
+
+      paths.each_with_index do |path, index|
+        validate_artifact_path(path, label, index)
+      end
+
+      when_policy = artifact_data.fetch("when", "always")
+      unless when_policy.is_a?(String) && ArtifactDefinition::VALID_POLICIES.include?(when_policy.to_sym)
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} artifacts when must be one of success, failure, always"
+      end
+
+      ArtifactDefinition.new(paths: paths, when_policy: when_policy.to_sym)
+    end
+
+    def validate_artifact_path(path, label, index)
+      unless path.is_a?(String) && !path.strip.empty?
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} artifact path #{index + 1} must be a non-empty string"
+      end
+
+      if Pathname.new(path).absolute? || path.split(/[\\\/]+/).include?("..")
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} artifact path #{index + 1} must stay inside the workspace"
+      end
     end
 
     def build_when_policy(step_data, label, default_when_policy)

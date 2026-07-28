@@ -9,7 +9,8 @@ module MiniCi
                 :before_all_results,
                 :step_results,
                 :after_all_results,
-                :total_duration
+                :total_duration,
+                :artifact_run_directory
 
     def initialize(
       name:,
@@ -19,7 +20,8 @@ module MiniCi
       configured_before_all_count: 0,
       configured_after_all_count: 0,
       before_all_results: [],
-      after_all_results: []
+      after_all_results: [],
+      artifact_run_directory: nil
     )
       @name = name
       @configured_before_all_count = configured_before_all_count
@@ -29,6 +31,7 @@ module MiniCi
       @step_results = step_results.freeze
       @after_all_results = after_all_results.freeze
       @total_duration = total_duration
+      @artifact_run_directory = artifact_run_directory
       freeze
     end
 
@@ -87,6 +90,22 @@ module MiniCi
 
     def cleanup_failure_count
       cleanup_failures.length
+    end
+
+    def artifact_count
+      all_results.sum { |result| result.artifact_result&.copied_file_count || 0 }
+    end
+
+    def artifact_warning_count
+      all_results.sum { |result| result.artifact_result&.warning_count || 0 }
+    end
+
+    def artifact_failure_count
+      all_results.sum { |result| result.artifact_result&.error_count || 0 }
+    end
+
+    def artifact_failures
+      all_results.select(&:artifact_failure?)
     end
 
     def before_all_passed_count

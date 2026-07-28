@@ -10,6 +10,9 @@ module MiniCi
       env: {},
       command_runner: CommandRunner.new,
       reporter: Reporter.new,
+      artifact_collector: nil,
+      artifact_store: nil,
+      artifact_job_directory: nil,
       clock: -> { Process.clock_gettime(Process::CLOCK_MONOTONIC) },
       sleeper: ->(seconds) { sleep(seconds) },
       announce_header: true
@@ -21,6 +24,9 @@ module MiniCi
       @env = env.dup.freeze
       @command_runner = command_runner
       @reporter = reporter
+      @artifact_collector = artifact_collector
+      @artifact_store = artifact_store
+      @artifact_job_directory = artifact_job_directory
       @clock = clock
       @sleeper = sleeper
       @announce_header = announce_header
@@ -67,7 +73,8 @@ module MiniCi
         before_all_results: before_all_results,
         step_results: step_results,
         after_all_results: after_all_results,
-        total_duration: @clock.call - pipeline_started_at
+        total_duration: @clock.call - pipeline_started_at,
+        artifact_run_directory: @artifact_store&.run_directory
       )
 
       @reporter.summary(pipeline_result)
@@ -106,13 +113,14 @@ module MiniCi
         return step_result
       end
 
-      step_result = run_step(step, category: category)
+      step_result = run_step(step, category: category, index: index)
 
       if step_result.success?
         @reporter.step_passed(step_result) unless step_result.retried?
       else
         @reporter.step_failed(step_result)
       end
+      @reporter.artifacts(step_result) if step_result.artifact_result
 
       step_result
     end
@@ -161,7 +169,7 @@ module MiniCi
       )
     end
 
-    def run_step(step, category:)
+    def run_step(step, category:, index:)
       started_at = @clock.call
       attempts = []
 
@@ -188,12 +196,44 @@ module MiniCi
         end
       end
 
-      StepResult.new(
+      step_result = StepResult.new(
         step: step,
         attempts: attempts,
         duration: @clock.call - started_at,
         category: category
       )
+      attach_artifacts(step_result, category: category, index: index)
+    end
+
+    def attach_artifacts(step_result, category:, index:)
+      return step_result unless should_collect_artifacts?(step_result)
+
+      destination = @artifact_store.item_directory(
+        job_directory: @artifact_job_directory,
+        phase: category,
+        index: index,
+        name: step_result.step.name
+      )
+      artifact_result = @artifact_collector.collect(step_result.step.artifacts, destination: destination)
+
+      StepResult.new(
+        step: step_result.step,
+        attempts: step_result.attempts,
+        duration: step_result.duration,
+        category: category,
+        artifact_result: artifact_result
+      )
+    end
+
+    def should_collect_artifacts?(step_result)
+      return false unless @artifact_collector && @artifact_store && @artifact_job_directory
+      return false unless step_result.step.artifacts
+
+      if step_result.final_attempt.success?
+        step_result.step.artifacts.collect_on_success?
+      else
+        step_result.step.artifacts.collect_on_failure?
+      end
     end
 
     def retry_if_possible(step, attempt_number)

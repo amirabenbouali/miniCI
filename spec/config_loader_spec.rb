@@ -179,6 +179,90 @@ RSpec.describe MiniCi::ConfigLoader do
       FileUtils.remove_entry(directory)
     end
 
+    it "uses nil artifacts when artifacts are omitted" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+      YAML
+
+      config = loader_for(path).load
+
+      expect(config.steps.first.artifacts).to be_nil
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "loads valid artifacts with the default policy" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+            artifacts:
+              paths:
+                - coverage/
+                - reports/**/*.xml
+      YAML
+
+      artifacts = loader_for(path).load.steps.first.artifacts
+
+      expect(artifacts.paths).to eq(["coverage/", "reports/**/*.xml"])
+      expect(artifacts.when_policy).to eq(:always)
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "loads artifact collection policies" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+            artifacts:
+              when: failure
+              paths:
+                - logs/
+      YAML
+
+      expect(loader_for(path).load.steps.first.artifacts.when_policy).to eq(:failure)
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects invalid artifact configuration with phase and index" do
+      path, directory = write_config(<<~YAML)
+        after_all:
+          - name: Cleanup
+            run: echo cleanup
+            artifacts:
+              paths:
+                - " "
+        steps:
+          - name: Step
+            run: echo hi
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: after_all hook 1 artifact path 1 must be a non-empty string")
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects unsafe artifact paths" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+            artifacts:
+              paths:
+                - ../outside
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, /must stay inside the workspace/)
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
     it "loads valid step environment variables" do
       path, directory = write_config(<<~YAML)
         steps:

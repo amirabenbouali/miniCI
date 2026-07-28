@@ -4,11 +4,12 @@ require_relative "attempt_result"
 
 module MiniCi
   class StepResult
-    attr_reader :step, :attempts, :duration, :started_at, :finished_at, :category, :skip_reason
+    attr_reader :step, :attempts, :duration, :started_at, :finished_at, :category, :skip_reason, :artifact_result
 
-    def initialize(step:, attempts: nil, success: nil, exit_status: nil, duration: nil, timed_out: false, timeout: nil, started_at: nil, finished_at: nil, category: :step, skipped: false, skip_reason: nil)
+    def initialize(step:, attempts: nil, success: nil, exit_status: nil, duration: nil, timed_out: false, timeout: nil, started_at: nil, finished_at: nil, category: :step, skipped: false, skip_reason: nil, artifact_result: nil)
       @step = step
       @skip_reason = skip_reason
+      @artifact_result = artifact_result
       @attempts = if skipped
                     []
                   else
@@ -34,7 +35,7 @@ module MiniCi
     def success?
       return false if skipped?
 
-      final_attempt.success?
+      final_attempt.success? && !artifact_failure?
     end
 
     def failed?
@@ -87,6 +88,14 @@ module MiniCi
 
     def total_duration
       duration
+    end
+
+    def artifacts_collected?
+      !artifact_result.nil? && artifact_result.success?
+    end
+
+    def artifact_failure?
+      !artifact_result.nil? && artifact_result.failed?
     end
 
     def before_all?

@@ -36,6 +36,22 @@ module MiniCi
       matrix_job_results.sum { |job| job.pipeline_result.total_attempts }
     end
 
+    def artifact_run_directory
+      matrix_job_results.find { |job| job.pipeline_result.artifact_run_directory }&.pipeline_result&.artifact_run_directory
+    end
+
+    def artifact_count
+      matrix_job_results.sum { |job| job.pipeline_result.artifact_count }
+    end
+
+    def artifact_warning_count
+      matrix_job_results.sum { |job| job.pipeline_result.artifact_warning_count }
+    end
+
+    def artifact_failure_count
+      matrix_job_results.sum { |job| job.pipeline_result.artifact_failure_count }
+    end
+
     def parallel?
       actual_worker_count > 1
     end

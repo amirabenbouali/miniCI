@@ -1,6 +1,9 @@
 # frozen_string_literal: true
 
 require_relative "command_runner"
+require_relative "artifact_collector"
+require_relative "artifact_manifest"
+require_relative "artifact_run_store"
 require_relative "concurrency_config"
 require_relative "config_loader"
 require_relative "errors"
@@ -65,7 +68,7 @@ module MiniCi
         Mini CI
 
         Usage:
-          mini-ci run [FILE] [--concurrency N]
+          mini-ci run [FILE] [--concurrency N] [--artifacts-dir DIR]
           mini-ci validate [FILE]
           mini-ci list [FILE]
           mini-ci version
@@ -85,8 +88,10 @@ module MiniCi
     end
 
     def run_pipeline(arguments)
-      config_path, concurrency_override = run_options_from(arguments)
+      config_path, concurrency_override, artifacts_dir = run_options_from(arguments)
       config = load_config(config_path)
+      artifact_store = artifact_store_for(config, artifacts_dir)
+      artifact_collector = artifact_store ? ArtifactCollector.new(workspace: Dir.pwd) : nil
       if config.matrix
         result = MatrixRunner.new(
           name: config.name,
@@ -97,20 +102,28 @@ module MiniCi
           after_all: config.after_all,
           env: config.env,
           concurrency: concurrency_override || config.concurrency,
+          artifact_collector: artifact_collector,
+          artifact_store: artifact_store,
           reporter: Reporter.new(output: @output)
         ).run
+        write_manifest(artifact_store, result, config.name, matrix: true)
 
         return result.success? ? SUCCESS : PIPELINE_FAILURE
       end
 
+      artifact_job_directory = artifact_store&.job_directory(index: 1)
       result = Pipeline.new(
         name: config.name,
         before_all: config.before_all,
         steps: config.steps,
         after_all: config.after_all,
         env: config.env,
+        artifact_collector: artifact_collector,
+        artifact_store: artifact_store,
+        artifact_job_directory: artifact_job_directory,
         reporter: Reporter.new(output: @output)
       ).run
+      write_manifest(artifact_store, result, config.name, matrix: false)
 
       result.success? ? SUCCESS : PIPELINE_FAILURE
     end
@@ -129,6 +142,7 @@ module MiniCi
       @output.puts "After-all hooks: #{config.after_all.length}"
       @output.puts "Environment variables: #{config.env.length}"
       @output.puts "Conditional items: #{conditional_item_count(config)}"
+      @output.puts "Artifact-producing items: #{artifact_item_count(config)}"
       @output.puts "File: #{config_path}"
 
       SUCCESS
@@ -164,6 +178,7 @@ module MiniCi
         @output.puts "     Retry delay: #{format_duration(step.retry_delay)}" if step.retries.positive? && step.retry_delay.positive?
         @output.puts "     When: #{step.when_policy}" if step.when_policy_explicit?
         @output.puts "     If: #{step.condition.source}" if step.condition
+        print_artifacts(step.artifacts)
         print_step_environment(step.env)
         @output.puts
       end
@@ -187,6 +202,7 @@ module MiniCi
     def run_options_from(arguments)
       remaining = arguments.dup
       concurrency = nil
+      artifacts_dir = nil
 
       index = 0
       while index < remaining.length
@@ -197,12 +213,18 @@ module MiniCi
 
           concurrency = parse_concurrency_override(value)
           remaining.slice!(index, 2)
+        elsif argument == "--artifacts-dir"
+          value = remaining[index + 1]
+          raise UsageError, "--artifacts-dir requires a value" unless value
+
+          artifacts_dir = value
+          remaining.slice!(index, 2)
         else
           index += 1
         end
       end
 
-      [config_path_from(remaining, "run"), concurrency]
+      [config_path_from(remaining, "run"), concurrency, artifacts_dir]
     end
 
     def parse_concurrency_override(value)
@@ -226,6 +248,27 @@ module MiniCi
     def conditional_item_count(config)
       (config.before_all + config.steps + config.after_all).count do |step|
         step.when_policy_explicit? || step.condition
+      end
+    end
+
+    def artifact_item_count(config)
+      (config.before_all + config.steps + config.after_all).count(&:artifacts)
+    end
+
+    def artifact_store_for(config, artifacts_dir)
+      return nil unless artifacts_dir || artifact_item_count(config).positive?
+
+      ArtifactRunStore.new(root: artifacts_dir || ArtifactRunStore::DEFAULT_ROOT, workspace: Dir.pwd)
+    end
+
+    def write_manifest(artifact_store, result, pipeline_name, matrix:)
+      return unless artifact_store
+
+      manifest = ArtifactManifest.new(store: artifact_store)
+      if matrix
+        manifest.write_for_matrix(result, pipeline_name: pipeline_name)
+      else
+        manifest.write_for_pipeline(result, pipeline_name: pipeline_name)
       end
     end
 
@@ -287,6 +330,17 @@ module MiniCi
       @output.puts "     Environment:"
       env.each do |name, value|
         @output.puts "       #{name}=#{value}"
+      end
+    end
+
+    def print_artifacts(artifacts)
+      return unless artifacts
+
+      @output.puts "     Artifacts:"
+      @output.puts "       When: #{artifacts.when_policy}"
+      @output.puts "       Paths:"
+      artifacts.paths.each do |path|
+        @output.puts "         - #{path}"
       end
     end
 

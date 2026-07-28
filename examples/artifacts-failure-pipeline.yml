@@ -1,0 +1,16 @@
+name: Artifact Failure Example
+
+steps:
+  - name: Failing artifact check
+    run: bash scripts/failing_artifact_check.sh
+    artifacts:
+      when: failure
+      paths:
+        - logs/
+
+  - name: Should be skipped
+    run: echo "this should not run"
+
+after_all:
+  - name: Cleanup report
+    run: echo "cleanup still runs"

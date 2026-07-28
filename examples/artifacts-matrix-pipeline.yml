@@ -1,0 +1,16 @@
+name: Artifact Matrix Example
+
+concurrency: 2
+
+matrix:
+  job:
+    - alpha
+    - beta
+    - gamma
+
+steps:
+  - name: Generate matrix artifacts
+    run: bash scripts/generate_matrix_artifacts.sh
+    artifacts:
+      paths:
+        - matrix-artifacts/

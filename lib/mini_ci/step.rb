@@ -4,9 +4,9 @@ module MiniCi
   class Step
     VALID_WHEN_POLICIES = [:success, :failure, :always, :never].freeze
 
-    attr_reader :name, :command, :env, :timeout, :retries, :retry_delay, :when_policy, :condition
+    attr_reader :name, :command, :env, :timeout, :retries, :retry_delay, :when_policy, :condition, :artifacts
 
-    def initialize(name:, command:, env: {}, timeout: nil, retries: 0, retry_delay: 0, when_policy: :success, condition: nil, when_policy_explicit: false)
+    def initialize(name:, command:, env: {}, timeout: nil, retries: 0, retry_delay: 0, when_policy: :success, condition: nil, when_policy_explicit: false, artifacts: nil)
       @name = validate_text(name, "name")
       @command = validate_text(command, "command")
       @env = env.dup.freeze
@@ -15,6 +15,7 @@ module MiniCi
       @retry_delay = validate_retry_delay(retry_delay)
       @when_policy = validate_when_policy(when_policy)
       @condition = condition
+      @artifacts = artifacts
       @when_policy_explicit = when_policy_explicit
       freeze
     end

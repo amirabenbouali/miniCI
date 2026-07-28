@@ -27,6 +27,8 @@ module MiniCi
       concurrency: ConcurrencyConfig.new(nil),
       command_runner: nil,
       command_runner_factory: nil,
+      artifact_collector: nil,
+      artifact_store: nil,
       reporter: Reporter.new,
       clock: -> { Process.clock_gettime(Process::CLOCK_MONOTONIC) },
       sleeper: ->(seconds) { sleep(seconds) },
@@ -42,6 +44,8 @@ module MiniCi
       @concurrency = concurrency
       @command_runner = command_runner
       @command_runner_factory = command_runner_factory
+      @artifact_collector = artifact_collector
+      @artifact_store = artifact_store
       @reporter = reporter
       @clock = clock
       @sleeper = sleeper
@@ -135,6 +139,9 @@ module MiniCi
         env: @env.merge(job.combination.environment),
         command_runner: command_runner,
         reporter: job_reporter,
+        artifact_collector: @artifact_collector,
+        artifact_store: @artifact_store,
+        artifact_job_directory: artifact_job_directory_for(job),
         clock: @clock,
         sleeper: @sleeper,
         announce_header: false
@@ -162,6 +169,12 @@ module MiniCi
       else
         CommandRunner.new(stdout: buffer.io, stderr: buffer.io)
       end
+    end
+
+    def artifact_job_directory_for(job)
+      return nil unless @artifact_store
+
+      @artifact_store.job_directory(index: job.index + 1, label: job.combination.label)
     end
 
     def requested_concurrency_for(job_count)

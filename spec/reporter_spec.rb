@@ -17,6 +17,23 @@ RSpec.describe MiniCi::Reporter do
     )
   end
 
+  def artifact_step_result
+    artifact_result = MiniCi::ArtifactResult.new(
+      requested_paths: ["coverage/", "missing/"],
+      copied_files: ["coverage/index.txt"],
+      destination: ".mini-ci/artifacts/run-test/job-001/step-001-example",
+      warnings: ['artifact path "missing/" did not match any files']
+    )
+
+    MiniCi::StepResult.new(
+      step: step(name: "Example"),
+      success: true,
+      exit_status: 0,
+      duration: 0.1,
+      artifact_result: artifact_result
+    )
+  end
+
   def skipped_result(name: "Skipped", category: :step, skip_reason: :previous_failure)
     MiniCi::StepResult.new(
       step: step(name: name),
@@ -71,7 +88,8 @@ RSpec.describe MiniCi::Reporter do
     before_all_results: [],
     after_all_results: [],
     configured_before_all_count: 0,
-    configured_after_all_count: 0
+    configured_after_all_count: 0,
+    artifact_run_directory: nil
   )
     MiniCi::PipelineResult.new(
       name: "Example Pipeline",
@@ -81,7 +99,8 @@ RSpec.describe MiniCi::Reporter do
       before_all_results: before_all_results,
       step_results: step_results,
       after_all_results: after_all_results,
-      total_duration: total_duration
+      total_duration: total_duration,
+      artifact_run_directory: artifact_run_directory
     )
   end
 
@@ -421,5 +440,31 @@ RSpec.describe MiniCi::Reporter do
     expect(output.string).to include("Failure:")
     expect(output.string).to include("Wall-clock duration:")
     expect(output.string).to include("Combined job time:")
+  end
+
+  it "prints artifact collection details" do
+    output = StringIO.new
+
+    reporter_with(output).artifacts(artifact_step_result)
+
+    expect(output.string).to include("Artifacts: 1 files collected")
+    expect(output.string).to include("Location: .mini-ci/artifacts/run-test")
+    expect(output.string).to include("Warning:")
+  end
+
+  it "prints artifact summary totals" do
+    output = StringIO.new
+    result = pipeline_result(
+      step_results: [artifact_step_result],
+      configured_step_count: 1,
+      total_duration: 0.2,
+      artifact_run_directory: ".mini-ci/artifacts/run-test"
+    )
+
+    reporter_with(output).summary(result)
+
+    expect(output.string).to include("Artifacts: 1 files")
+    expect(output.string).to include("Artifact warnings: 1")
+    expect(output.string).to include("Artifact location: .mini-ci/artifacts/run-test")
   end
 end

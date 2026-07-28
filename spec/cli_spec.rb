@@ -367,6 +367,14 @@ RSpec.describe MiniCi::CLI do
       expect(stderr).to be_empty
     end
 
+    it "displays artifact-producing item count" do
+      exit_code, stdout, stderr = run_cli(["validate", "examples/artifacts-success-pipeline.yml"])
+
+      expect(exit_code).to eq(0)
+      expect(stdout).to include("Artifact-producing items: 1")
+      expect(stderr).to be_empty
+    end
+
     it "returns a configuration error for malformed matrices" do
       path, directory = write_temp_config(<<~YAML)
         name: Bad Matrix
@@ -500,6 +508,16 @@ RSpec.describe MiniCi::CLI do
 
       expect(exit_code).to eq(0)
       expect(stdout).to include("Concurrency: 2")
+      expect(stderr).to be_empty
+    end
+
+    it "displays artifact configuration" do
+      exit_code, stdout, stderr = run_cli(["list", "examples/artifacts-success-pipeline.yml"])
+
+      expect(exit_code).to eq(0)
+      expect(stdout).to include("Artifacts:")
+      expect(stdout).to include("When: always")
+      expect(stdout).to include("- coverage/")
       expect(stderr).to be_empty
     end
 
@@ -768,6 +786,47 @@ RSpec.describe MiniCi::CLI do
       expect(stdout).to include("Matrix job 3")
       expect(stdout).to include("cleanup for beta")
       expect(stdout).to include("Jobs: 2 passed, 1 failed, 3 total")
+    end
+
+    it "returns 0 for the successful artifact example" do
+      directory = Dir.mktmpdir
+
+      exit_code, stdout, stderr = run_cli(["run", "examples/artifacts-success-pipeline.yml", "--artifacts-dir", directory])
+
+      expect(exit_code).to eq(0)
+      expect(stdout).to include("Artifacts: 3 files")
+      expect(stdout).to include("Artifact warnings: 1")
+      expect(File.exist?(File.join(directory, Dir.children(directory).first, "manifest.json"))).to be(true)
+      expect(stderr).to be_empty
+    ensure
+      FileUtils.remove_entry(directory) if directory
+    end
+
+    it "returns 1 for the failing artifact example" do
+      directory = Dir.mktmpdir
+
+      exit_code, stdout, = run_cli(["run", "examples/artifacts-failure-pipeline.yml", "--artifacts-dir", directory])
+
+      expect(exit_code).to eq(1)
+      expect(stdout).to include("Primary failure:")
+      expect(stdout).to include("Failing artifact check failed with exit code 1")
+      expect(stdout).to include("Artifacts:")
+    ensure
+      FileUtils.remove_entry(directory) if directory
+    end
+
+    it "returns 0 for the matrix artifact example" do
+      directory = Dir.mktmpdir
+
+      exit_code, stdout, stderr = run_cli(["run", "examples/artifacts-matrix-pipeline.yml", "--concurrency", "2", "--artifacts-dir", directory])
+
+      expect(exit_code).to eq(0)
+      expect(stdout).to include("Artifacts:")
+      expect(stdout).to include("across 3 jobs")
+      expect(Dir.glob(File.join(directory, "*", "job-*")).length).to eq(3)
+      expect(stderr).to be_empty
+    ensure
+      FileUtils.remove_entry(directory) if directory
     end
   end
 

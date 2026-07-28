@@ -1,6 +1,12 @@
 # frozen_string_literal: true
 
 require_relative "mini_ci/attempt_result"
+require_relative "mini_ci/artifact_collector"
+require_relative "mini_ci/artifact_definition"
+require_relative "mini_ci/artifact_manifest"
+require_relative "mini_ci/artifact_path_resolver"
+require_relative "mini_ci/artifact_result"
+require_relative "mini_ci/artifact_run_store"
 require_relative "mini_ci/buffered_job_output"
 require_relative "mini_ci/cli"
 require_relative "mini_ci/command_runner"

@@ -1,0 +1,14 @@
+name: Artifact Success Example
+
+steps:
+  - name: Generate test artifacts
+    run: bash scripts/generate_test_artifacts.sh
+    artifacts:
+      paths:
+        - coverage/
+        - reports/results.xml
+        - logs/**/*.log
+        - missing-output/
+
+  - name: Continue after artifacts
+    run: echo "artifact pipeline continued"

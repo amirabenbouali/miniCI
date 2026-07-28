@@ -1,6 +1,10 @@
 /.bundle/
 /coverage/
+/logs/
+/matrix-artifacts/
+/reports/
 /tmp/
+/.mini-ci/
 /vendor/bundle/
 .DS_Store
 *.gem

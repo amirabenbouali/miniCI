@@ -4,7 +4,7 @@ Mini CI is a lightweight local CI/CD pipeline runner written primarily in Ruby. 
 
 ## Current Milestone
 
-Mini CI v0.11 supports:
+Mini CI v0.12 supports:
 
 - loading pipeline steps from `pipeline.yml`;
 - loading a custom pipeline configuration path;
@@ -19,6 +19,8 @@ Mini CI v0.11 supports:
 - parallel matrix job execution with a bounded worker pool;
 - buffered per-job matrix output;
 - fail-late matrix aggregate results;
+- build artifact collection for steps and hooks;
+- artifact manifests under each run directory;
 - pipeline-level and step-level environment variables;
 - step-level environment variables overriding global values;
 - optional per-step command timeouts;
@@ -31,7 +33,7 @@ Mini CI v0.11 supports:
 - continuing to evaluate later configured items after failures;
 - returning a non-zero application exit status when the pipeline fails.
 
-It does not yet support artifacts, caching, plugins, secrets management, `.env` files, Docker, deployment logic, a web frontend, a database, or external APIs.
+It does not yet support dependency caching, plugins, remote artifact storage, cloud uploads, compression, secrets management, `.env` files, Docker, deployment logic, a web frontend, a database, or external APIs.
 
 ## Requirements
 
@@ -82,7 +84,7 @@ bundle exec bin/mini-ci
 
 | Command | Description | Example |
 | --- | --- | --- |
-| `run [FILE] [--concurrency N]` | Execute a pipeline | `bundle exec bin/mini-ci run examples/matrix-parallel-pipeline.yml --concurrency 4` |
+| `run [FILE] [--concurrency N] [--artifacts-dir DIR]` | Execute a pipeline | `bundle exec bin/mini-ci run examples/artifacts-success-pipeline.yml --artifacts-dir tmp/artifacts` |
 | `validate [FILE]` | Validate a pipeline configuration without running commands | `bundle exec bin/mini-ci validate` |
 | `list [FILE]` | Display configured pipeline steps without running commands | `bundle exec bin/mini-ci list` |
 | `version` | Display the installed version | `bundle exec bin/mini-ci version` |
@@ -355,6 +357,73 @@ Matrix summary duration has two meanings:
 
 Timeouts remain scoped to the command process group for that job. A timed-out matrix job should not signal another matrix job's process group.
 
+### Build Artifacts
+
+Steps and hooks can declare files or directories to collect after they execute:
+
+```yaml
+steps:
+  - name: Run tests
+    run: bash scripts/generate_test_artifacts.sh
+    artifacts:
+      when: always
+      paths:
+        - coverage/
+        - reports/results.xml
+        - logs/**/*.log
+```
+
+`artifacts` must be a mapping. `paths` must be a non-empty array of strings. `when` is optional and defaults to `always`.
+
+Artifact policies:
+
+- `always` collects after any executed result;
+- `success` collects only when the item ultimately succeeds;
+- `failure` collects only when the item ultimately fails, including timeout failures.
+
+Skipped items do not collect artifacts. Retries collect only once, after the final attempt, using the final filesystem state. After a timeout, Mini CI waits for the command process group to terminate before collecting eligible artifacts.
+
+Artifact source paths are resolved relative to the pipeline workspace. Mini CI supports direct file paths, directories, and Ruby glob patterns such as `reports/**/*.xml`. Source paths must stay inside the workspace: absolute paths, `..` traversal, and symlinks resolving outside the workspace are rejected or reported as artifact collection errors.
+
+Missing paths produce warnings and do not fail the step:
+
+```text
+Warning: artifact path "coverage/" did not match any files
+```
+
+Real copy failures, unsafe symlinks, or manifest write failures fail the overall run because the user explicitly requested those outputs be preserved. If the command already failed, that command remains the primary failure and the artifact problem is reported separately.
+
+Artifacts are stored under a unique run directory:
+
+```text
+.mini-ci/artifacts/
+  run-20260728T101530Z-a1b2c3/
+    job-001/
+      step-001-run-tests/
+        coverage/
+        reports/results.xml
+    manifest.json
+```
+
+Matrix jobs receive isolated job directories such as:
+
+```text
+job-001-job-alpha/
+job-002-job-beta/
+```
+
+Parallel matrix jobs write only inside their own job artifact directory, so artifact destinations do not overwrite each other.
+
+Use a custom artifact root with:
+
+```bash
+bundle exec bin/mini-ci run examples/artifacts-success-pipeline.yml --artifacts-dir tmp/artifacts
+```
+
+Relative artifact destinations are resolved from the current working directory. Absolute artifact destinations are allowed because they are output locations chosen by the user.
+
+Each run writes `manifest.json` with run metadata, final status, jobs, artifact item directories, file counts, and warnings. It does not include command environments or secret values.
+
 ### Custom Configuration Path
 
 You can pass an optional file path to load a different configuration:
@@ -399,6 +468,12 @@ Mini CI validates the configuration before running any commands. It raises clear
 - `retry_delay` values that are negative, strings, booleans, null, arrays, mappings, or non-finite.
 - `concurrency` values that are zero, negative, decimal numbers, strings, booleans, null, arrays, or mappings;
 - `concurrency` values greater than `32`;
+- `artifacts` values that are not mappings;
+- artifact definitions missing `paths`;
+- artifact `paths` values that are empty or are not arrays;
+- artifact path values that are blank, non-strings, null, absolute, or escape the workspace;
+- artifact `when` values other than `success`, `failure`, or `always`;
+- unknown artifact fields;
 - `when` values other than `success`, `failure`, `always`, or `never`;
 - `if` values that are blank, non-strings, or outside the supported grammar.
 - `matrix` values that are not mappings or are empty;
@@ -973,6 +1048,42 @@ echo $?
 
 It demonstrates one timed-out matrix job while another job finishes normally.
 
+## Artifact Example Pipelines
+
+Validate and list the successful artifact example:
+
+```bash
+bundle exec bin/mini-ci validate examples/artifacts-success-pipeline.yml
+bundle exec bin/mini-ci list examples/artifacts-success-pipeline.yml
+```
+
+Run the successful artifact example:
+
+```bash
+bundle exec bin/mini-ci run examples/artifacts-success-pipeline.yml
+echo $?
+```
+
+It generates coverage, report, and log files; copies them into `.mini-ci/artifacts/run-...`; writes `manifest.json`; warns about one missing optional path; and exits with status `0`.
+
+Run the failing artifact example:
+
+```bash
+bundle exec bin/mini-ci run examples/artifacts-failure-pipeline.yml
+echo $?
+```
+
+It creates a failure log, exits non-zero, collects logs because `artifacts.when` is `failure`, skips the later default-success step, runs cleanup, and exits with status `1`.
+
+Run the matrix artifact example with parallel execution:
+
+```bash
+bundle exec bin/mini-ci run examples/artifacts-matrix-pipeline.yml --concurrency 2
+echo $?
+```
+
+It runs three matrix jobs, stores each job's artifacts in a separate job directory, and exits with status `0`.
+
 ## Version And Help
 
 Show the installed version:
@@ -984,7 +1095,7 @@ bundle exec bin/mini-ci version
 Example output:
 
 ```text
-Mini CI 0.11.0
+Mini CI 0.12.0
 ```
 
 Show help:
@@ -1021,7 +1132,7 @@ Mini CI uses process exit codes to report pipeline success or failure:
 
 - exit code `0` — the command completed successfully;
 - exit code `1` — pipeline execution failed;
-- exit code `2` — configuration or CLI usage error.
+- exit code `2` — configuration or CLI usage error;
 - exit code `3` — internal Mini CI execution error.
 
 Configuration errors are printed to standard error:
@@ -1042,6 +1153,8 @@ Run `mini-ci help` for usage information.
 
 - Steps within one pipeline job run one at a time.
 - Matrix jobs can run concurrently, but only on the local machine.
+- Artifacts are stored locally only.
+- Artifact collection happens once per item after final retry, not once per attempt.
 - Matrix runs are fail-late: one failed job does not stop later jobs.
 - Later configured items are evaluated after failure, but only supported `when` and `if` rules are available.
 - Cleanup hooks still run after setup or main-step failures.
@@ -1050,8 +1163,8 @@ Run `mini-ci help` for usage information.
 - No secrets management or secret masking.
 - No `.env` file support.
 - Timeout process-group termination is currently intended for Unix-like systems.
-- No artifacts, caching, plugins, Docker, deployment, frontend, or database support.
+- No dependency caching, remote artifact storage, compression, plugins, Docker, deployment, frontend, or database support.
 
 ## Next Milestone
 
-The next planned milestone adds artifacts.
+The next planned milestone adds dependency caching.
