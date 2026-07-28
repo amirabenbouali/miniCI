@@ -1,0 +1,12 @@
+name: Cache Fallback Example
+
+steps:
+  - name: Install demo dependency with fallback
+    run: bash scripts/cache_dependency_demo.sh
+    cache:
+      key: demo-dependencies-new-${{ checksum("examples/cache.lock") }}
+      restore_keys:
+        - demo-dependencies-
+      paths:
+        - tmp/dependencies
+

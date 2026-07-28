@@ -1,10 +1,10 @@
 # Mini CI
 
-Mini CI is a lightweight local CI/CD pipeline runner written primarily in Ruby. It loads pipeline steps and hooks from a YAML configuration file, runs shell commands on your local machine, records durations, and prints a final execution summary.
+Mini CI is a lightweight local CI/CD pipeline runner written primarily in Ruby. It loads pipeline steps and hooks from a YAML configuration file, runs shell commands on your local machine, restores and saves local dependency caches, records durations, and prints a final execution summary.
 
 ## Current Milestone
 
-Mini CI v0.12 supports:
+Mini CI v0.13 supports:
 
 - loading pipeline steps from `pipeline.yml`;
 - loading a custom pipeline configuration path;
@@ -21,6 +21,11 @@ Mini CI v0.12 supports:
 - fail-late matrix aggregate results;
 - build artifact collection for steps and hooks;
 - artifact manifests under each run directory;
+- local filesystem dependency caching for steps and hooks;
+- exact cache restores and fallback restore-key prefixes;
+- SHA-256 checksum cache key expressions;
+- environment and matrix cache key expressions;
+- cache listing and clearing commands;
 - pipeline-level and step-level environment variables;
 - step-level environment variables overriding global values;
 - optional per-step command timeouts;
@@ -33,7 +38,7 @@ Mini CI v0.12 supports:
 - continuing to evaluate later configured items after failures;
 - returning a non-zero application exit status when the pipeline fails.
 
-It does not yet support dependency caching, plugins, remote artifact storage, cloud uploads, compression, secrets management, `.env` files, Docker, deployment logic, a web frontend, a database, or external APIs.
+It does not yet support plugins, remote cache servers, remote artifact storage, cloud uploads, compression, cache eviction policies, secrets management, `.env` files, Docker, deployment logic, a web frontend, a database, or external APIs.
 
 ## Requirements
 
@@ -68,6 +73,7 @@ Mini CI uses subcommands:
 
 ```bash
 bundle exec bin/mini-ci help
+bundle exec bin/mini-ci cache list
 bundle exec bin/mini-ci version
 bundle exec bin/mini-ci validate
 bundle exec bin/mini-ci list
@@ -84,9 +90,11 @@ bundle exec bin/mini-ci
 
 | Command | Description | Example |
 | --- | --- | --- |
-| `run [FILE] [--concurrency N] [--artifacts-dir DIR]` | Execute a pipeline | `bundle exec bin/mini-ci run examples/artifacts-success-pipeline.yml --artifacts-dir tmp/artifacts` |
+| `run [FILE] [--concurrency N] [--artifacts-dir DIR] [--cache-dir DIR] [--no-cache]` | Execute a pipeline | `bundle exec bin/mini-ci run examples/cache-basic-pipeline.yml --cache-dir tmp/cache` |
 | `validate [FILE]` | Validate a pipeline configuration without running commands | `bundle exec bin/mini-ci validate` |
 | `list [FILE]` | Display configured pipeline steps without running commands | `bundle exec bin/mini-ci list` |
+| `cache list [--cache-dir DIR]` | Display saved cache entries | `bundle exec bin/mini-ci cache list` |
+| `cache clear --yes [--cache-dir DIR]` | Clear saved cache entries | `bundle exec bin/mini-ci cache clear --yes` |
 | `version` | Display the installed version | `bundle exec bin/mini-ci version` |
 | `help` | Display usage information | `bundle exec bin/mini-ci help` |
 
@@ -424,6 +432,83 @@ Relative artifact destinations are resolved from the current working directory. 
 
 Each run writes `manifest.json` with run metadata, final status, jobs, artifact item directories, file counts, and warnings. It does not include command environments or secret values.
 
+### Dependency Caching
+
+Steps and hooks can declare a local dependency cache:
+
+```yaml
+steps:
+  - name: Install dependencies
+    run: bundle install
+    cache:
+      key: bundle-${{ checksum("Gemfile.lock") }}
+      restore_keys:
+        - bundle-
+      paths:
+        - vendor/bundle
+```
+
+Mini CI restores the cache before the item runs and saves configured paths after the final attempt. Artifacts are collected before caches are saved, so diagnostic files are preserved first when both features are configured.
+
+Cache fields:
+
+- `key` is required and must be a non-empty string.
+- `paths` is required and must be a non-empty array of relative paths or globs.
+- `restore_keys` is optional and must be an array of fallback key prefixes.
+- `save_when` is optional and may be `success` or `always`; the default is `success`.
+
+Restore behaviour:
+
+- Mini CI first looks for an exact match for the resolved `key`.
+- If no exact match exists, it tries `restore_keys` in order.
+- A restore key is treated as a prefix; Mini CI restores the newest matching cache.
+- Mini CI always saves under the resolved primary `key`, never under a restore key.
+
+Cache key expressions are intentionally small and safe:
+
+```text
+${{ checksum("relative/file") }}
+${{ env.VARIABLE }}
+```
+
+`checksum` uses SHA-256 and only accepts files inside the workspace. Absolute paths, `..` traversal, directories, missing files, and symlinks resolving outside the workspace are rejected before the command executes. Mini CI does not use Ruby `eval`, shell execution, arbitrary functions, or YAML object loading for cache keys.
+
+Caches are stored locally under:
+
+```text
+.mini-ci/cache/
+```
+
+Use a custom cache root:
+
+```bash
+bundle exec bin/mini-ci run examples/cache-basic-pipeline.yml --cache-dir tmp/cache
+```
+
+Disable caching for a run:
+
+```bash
+bundle exec bin/mini-ci run examples/cache-basic-pipeline.yml --no-cache
+```
+
+Inspect and clear cache entries:
+
+```bash
+bundle exec bin/mini-ci cache list
+bundle exec bin/mini-ci cache clear --yes
+```
+
+Cache saves are written to a temporary directory and then atomically moved into place. Matrix jobs share the same cache store and use process-local per-key locks for concurrent saves. Restore and save filesystem problems are reported as warnings and do not fail the pipeline; invalid cache configuration and key-resolution errors fail before the item command executes.
+
+Working examples:
+
+```bash
+bundle exec bin/mini-ci run examples/cache-basic-pipeline.yml
+bundle exec bin/mini-ci run examples/cache-fallback-pipeline.yml
+bundle exec bin/mini-ci run examples/cache-matrix-pipeline.yml
+bundle exec bin/mini-ci run examples/cache-failure-pipeline.yml
+```
+
 ### Custom Configuration Path
 
 You can pass an optional file path to load a different configuration:
@@ -474,6 +559,15 @@ Mini CI validates the configuration before running any commands. It raises clear
 - artifact path values that are blank, non-strings, null, absolute, or escape the workspace;
 - artifact `when` values other than `success`, `failure`, or `always`;
 - unknown artifact fields;
+- `cache` values that are not mappings;
+- cache definitions missing `key` or `paths`;
+- cache keys that are blank, non-strings, or contain null bytes;
+- cache `paths` values that are empty or are not arrays;
+- cache path values that are blank, non-strings, null, absolute, or escape the workspace;
+- cache `restore_keys` values that are not arrays;
+- cache restore keys that are blank, non-strings, or contain null bytes;
+- cache `save_when` values other than `success` or `always`;
+- unsupported cache key expressions;
 - `when` values other than `success`, `failure`, `always`, or `never`;
 - `if` values that are blank, non-strings, or outside the supported grammar.
 - `matrix` values that are not mappings or are empty;
@@ -608,6 +702,7 @@ Make the script executable before running the pipeline:
 chmod +x scripts/print_env.sh
 chmod +x scripts/prepare_workspace.sh
 chmod +x scripts/cleanup_workspace.sh
+chmod +x scripts/cache_dependency_demo.sh
 ```
 
 Example script:
@@ -641,6 +736,8 @@ Steps: 2
 After-all hooks: 0
 Environment variables: 3
 Conditional items: 0
+Artifact-producing items: 0
+Cache-producing items: 0
 File: pipeline.yml
 ```
 
@@ -1095,7 +1192,7 @@ bundle exec bin/mini-ci version
 Example output:
 
 ```text
-Mini CI 0.12.0
+Mini CI 0.13.0
 ```
 
 Show help:
@@ -1154,6 +1251,8 @@ Run `mini-ci help` for usage information.
 - Steps within one pipeline job run one at a time.
 - Matrix jobs can run concurrently, but only on the local machine.
 - Artifacts are stored locally only.
+- Dependency caches are stored locally only.
+- Cache entries are not compressed and do not have eviction policies yet.
 - Artifact collection happens once per item after final retry, not once per attempt.
 - Matrix runs are fail-late: one failed job does not stop later jobs.
 - Later configured items are evaluated after failure, but only supported `when` and `if` rules are available.
@@ -1163,8 +1262,8 @@ Run `mini-ci help` for usage information.
 - No secrets management or secret masking.
 - No `.env` file support.
 - Timeout process-group termination is currently intended for Unix-like systems.
-- No dependency caching, remote artifact storage, compression, plugins, Docker, deployment, frontend, or database support.
+- No remote cache servers, remote artifact storage, compression, plugins, Docker, deployment, frontend, or database support.
 
 ## Next Milestone
 
-The next planned milestone adds dependency caching.
+The next planned milestone adds a plugin system.

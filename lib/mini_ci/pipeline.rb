@@ -1,5 +1,8 @@
 # frozen_string_literal: true
 
+require_relative "cache_key_resolver"
+require_relative "cache_result"
+
 module MiniCi
   class Pipeline
     def initialize(
@@ -13,6 +16,9 @@ module MiniCi
       artifact_collector: nil,
       artifact_store: nil,
       artifact_job_directory: nil,
+      cache_store: nil,
+      cache_enabled: true,
+      cache_key_resolver: nil,
       clock: -> { Process.clock_gettime(Process::CLOCK_MONOTONIC) },
       sleeper: ->(seconds) { sleep(seconds) },
       announce_header: true
@@ -27,6 +33,9 @@ module MiniCi
       @artifact_collector = artifact_collector
       @artifact_store = artifact_store
       @artifact_job_directory = artifact_job_directory
+      @cache_store = cache_store
+      @cache_enabled = cache_enabled
+      @cache_key_resolver = cache_key_resolver || CacheKeyResolver.new(workspace: Dir.pwd)
       @clock = clock
       @sleeper = sleeper
       @announce_header = announce_header
@@ -172,9 +181,25 @@ module MiniCi
     def run_step(step, category:, index:)
       started_at = @clock.call
       attempts = []
+      cache_result = restore_cache(step)
 
-      step.maximum_attempts.times do |index|
-        attempt_number = index + 1
+      if cache_result&.failed?
+        step_result = StepResult.new(
+          step: step,
+          success: false,
+          exit_status: nil,
+          duration: @clock.call - started_at,
+          category: category,
+          cache_result: cache_result
+        )
+        @reporter.cache_restored(cache_result)
+        return step_result
+      end
+
+      @reporter.cache_restored(cache_result) if cache_result
+
+      step.maximum_attempts.times do |attempt_index|
+        attempt_number = attempt_index + 1
         @reporter.attempt_started(attempt_number, total: step.maximum_attempts) if step.maximum_attempts > 1
 
         attempt = @command_runner.run(
@@ -200,9 +225,11 @@ module MiniCi
         step: step,
         attempts: attempts,
         duration: @clock.call - started_at,
-        category: category
+        category: category,
+        cache_result: cache_result
       )
-      attach_artifacts(step_result, category: category, index: index)
+      step_result = attach_artifacts(step_result, category: category, index: index)
+      attach_cache_save(step_result)
     end
 
     def attach_artifacts(step_result, category:, index:)
@@ -221,8 +248,58 @@ module MiniCi
         attempts: step_result.attempts,
         duration: step_result.duration,
         category: category,
-        artifact_result: artifact_result
+        artifact_result: artifact_result,
+        cache_result: step_result.cache_result
       )
+    end
+
+    def restore_cache(step)
+      return nil unless step.cache
+
+      if !@cache_enabled || !@cache_store
+        return CacheResult.new(configured: true, disabled: true, restore_status: :disabled)
+      end
+
+      resolved_key = resolve_cache_key(step.cache.key, step)
+      restore_keys = step.cache.restore_keys.map { |restore_key| resolve_cache_key(restore_key, step) }
+      @cache_store.restore(resolved_key: resolved_key, restore_keys: restore_keys)
+    rescue ConfigurationError => e
+      CacheResult.new(configured: true, restore_status: :error, errors: [e.message])
+    end
+
+    def attach_cache_save(step_result)
+      return step_result unless step_result.cache_configured?
+      return step_result if step_result.cache_result.disabled?
+      return step_result if step_result.cache_result.failed?
+      return step_result unless should_save_cache?(step_result)
+
+      save_result = @cache_store.save(
+        resolved_key: step_result.cache_result.resolved_key,
+        paths: step_result.step.cache.paths
+      )
+      cache_result = step_result.cache_result.merge_save(**save_result)
+      @reporter.cache_saved(cache_result)
+
+      StepResult.new(
+        step: step_result.step,
+        attempts: step_result.attempts,
+        duration: step_result.duration,
+        category: step_result.category,
+        artifact_result: step_result.artifact_result,
+        cache_result: cache_result
+      )
+    end
+
+    def should_save_cache?(step_result)
+      if step_result.final_attempt.success? && !step_result.artifact_failure?
+        step_result.step.cache.save_on_success?
+      else
+        step_result.step.cache.save_on_failure?
+      end
+    end
+
+    def resolve_cache_key(template, step)
+      @cache_key_resolver.resolve(template, env: ENV.to_h.merge(@env).merge(step.env))
     end
 
     def should_collect_artifacts?(step_result)

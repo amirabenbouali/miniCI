@@ -1,0 +1,13 @@
+name: Cache Basic Example
+
+steps:
+  - name: Install demo dependency
+    run: bash scripts/cache_dependency_demo.sh
+    cache:
+      key: demo-dependencies-${{ checksum("examples/cache.lock") }}
+      paths:
+        - tmp/dependencies
+
+  - name: Verify dependency
+    run: test -f tmp/dependencies/demo-package.txt
+

@@ -29,6 +29,8 @@ module MiniCi
       command_runner_factory: nil,
       artifact_collector: nil,
       artifact_store: nil,
+      cache_store: nil,
+      cache_enabled: true,
       reporter: Reporter.new,
       clock: -> { Process.clock_gettime(Process::CLOCK_MONOTONIC) },
       sleeper: ->(seconds) { sleep(seconds) },
@@ -46,6 +48,8 @@ module MiniCi
       @command_runner_factory = command_runner_factory
       @artifact_collector = artifact_collector
       @artifact_store = artifact_store
+      @cache_store = cache_store
+      @cache_enabled = cache_enabled
       @reporter = reporter
       @clock = clock
       @sleeper = sleeper
@@ -142,6 +146,8 @@ module MiniCi
         artifact_collector: @artifact_collector,
         artifact_store: @artifact_store,
         artifact_job_directory: artifact_job_directory_for(job),
+        cache_store: @cache_store,
+        cache_enabled: @cache_enabled,
         clock: @clock,
         sleeper: @sleeper,
         announce_header: false

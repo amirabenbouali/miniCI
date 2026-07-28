@@ -52,6 +52,26 @@ module MiniCi
       matrix_job_results.sum { |job| job.pipeline_result.artifact_failure_count }
     end
 
+    def cache_configured_count
+      matrix_job_results.sum { |job| job.pipeline_result.cache_configured_count }
+    end
+
+    def cache_hit_count
+      matrix_job_results.sum { |job| job.pipeline_result.cache_hit_count }
+    end
+
+    def cache_miss_count
+      matrix_job_results.sum { |job| job.pipeline_result.cache_miss_count }
+    end
+
+    def cache_save_count
+      matrix_job_results.sum { |job| job.pipeline_result.cache_save_count }
+    end
+
+    def cache_warning_count
+      matrix_job_results.sum { |job| job.pipeline_result.cache_warning_count }
+    end
+
     def parallel?
       actual_worker_count > 1
     end

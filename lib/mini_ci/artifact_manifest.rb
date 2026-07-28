@@ -43,17 +43,36 @@ module MiniCi
         "status" => result.success? ? "passed" : "failed",
         "items" => result.all_results.each_with_index.map do |item_result, item_index|
           artifact = item_result.artifact_result
-          next unless artifact
+          cache = item_result.cache_result
+          next unless artifact || cache
 
-          {
+          item_payload = {
             "phase" => item_result.category.to_s,
             "index" => item_index + 1,
-            "name" => item_result.step.name,
+            "name" => item_result.step.name
+          }
+          if artifact
+            item_payload.merge!(
             "artifact_directory" => artifact.destination ? @store.relative_to_run(artifact.destination) : nil,
             "files" => artifact.copied_file_count,
             "warnings" => artifact.warnings
-          }
+            )
+          end
+          item_payload["cache"] = cache_payload(cache) if cache
+          item_payload
         end.compact
+      }
+    end
+
+    def cache_payload(cache)
+      {
+        "resolved_key" => cache.resolved_key,
+        "restore_status" => cache.restore_status.to_s,
+        "restore_source_key" => cache.restore_source_key,
+        "restored_files" => cache.restored_file_count,
+        "saved_files" => cache.saved_file_count,
+        "warnings" => cache.warnings,
+        "errors" => cache.errors
       }
     end
 

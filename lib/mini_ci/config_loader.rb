@@ -4,6 +4,8 @@ require "yaml"
 require "pathname"
 
 require_relative "artifact_definition"
+require_relative "cache_definition"
+require_relative "cache_key_resolver"
 require_relative "condition_parser"
 require_relative "concurrency_config"
 require_relative "matrix_definition"
@@ -165,6 +167,7 @@ module MiniCi
       when_policy, when_policy_explicit = build_when_policy(step_data, label, default_when_policy)
       condition = build_condition(step_data["if"], label) if step_data.key?("if")
       artifacts = build_artifacts(step_data["artifacts"], label) if step_data.key?("artifacts")
+      cache = build_cache(step_data["cache"], label) if step_data.key?("cache")
 
       unless name.is_a?(String) && !name.strip.empty?
         raise ConfigurationError, "Invalid pipeline configuration: #{label} has a blank name"
@@ -184,8 +187,55 @@ module MiniCi
         when_policy: when_policy,
         condition: condition,
         when_policy_explicit: when_policy_explicit,
-        artifacts: artifacts
+        artifacts: artifacts,
+        cache: cache
       )
+    end
+
+    def build_cache(cache_data, label)
+      unless cache_data.is_a?(Hash)
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} cache must be a mapping"
+      end
+
+      unknown_fields = cache_data.keys - ["key", "paths", "restore_keys", "save_when"]
+      unless unknown_fields.empty?
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} cache contains unknown field #{unknown_fields.first.inspect}"
+      end
+
+      unless cache_data.key?("key")
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} cache is missing \"key\""
+      end
+
+      unless cache_data.key?("paths")
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} cache paths must be a non-empty array"
+      end
+
+      restore_keys = cache_data.fetch("restore_keys", [])
+      unless restore_keys.is_a?(Array)
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} cache restore_keys must be an array"
+      end
+
+      validate_cache_template(cache_data["key"], "#{label} cache key")
+      restore_keys.each_with_index do |restore_key, index|
+        validate_cache_template(restore_key, "#{label} cache restore key #{index + 1}")
+      end
+
+      CacheDefinition.new(
+        key: cache_data["key"],
+        paths: cache_data["paths"],
+        restore_keys: restore_keys,
+        save_when: cache_data.fetch("save_when", :success)
+      )
+    rescue ArgumentError => e
+      raise ConfigurationError, "Invalid pipeline configuration: #{label} #{e.message}"
+    end
+
+    def validate_cache_template(value, label)
+      unless value.is_a?(String) && !value.strip.empty? && !value.include?("\0")
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} must be a non-empty string"
+      end
+
+      CacheKeyResolver.new(workspace: Dir.pwd).validate_template!(value)
     end
 
     def build_artifacts(artifact_data, label)

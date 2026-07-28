@@ -193,6 +193,161 @@ RSpec.describe MiniCi::ConfigLoader do
       FileUtils.remove_entry(directory)
     end
 
+    it "uses nil cache when cache is omitted" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+      YAML
+
+      config = loader_for(path).load
+
+      expect(config.steps.first.cache).to be_nil
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "loads cache configuration" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Install dependencies
+            run: echo install
+            cache:
+              key: bundle-${{ env.MATRIX_RUBY }}
+              restore_keys:
+                - bundle-
+              paths:
+                - vendor/bundle
+              save_when: always
+      YAML
+
+      cache = loader_for(path).load.steps.first.cache
+
+      expect(cache.key).to eq("bundle-${{ env.MATRIX_RUBY }}")
+      expect(cache.restore_keys).to eq(["bundle-"])
+      expect(cache.paths).to eq(["vendor/bundle"])
+      expect(cache.save_when).to eq(:always)
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects cache that is not a mapping" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+            cache: true
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 cache must be a mapping")
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects a missing cache key" do
+      path, directory = write_config(<<~YAML)
+        before_all:
+          - name: Setup
+            run: echo setup
+            cache:
+              paths:
+                - tmp/cache
+        steps:
+          - name: Step
+            run: echo hi
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, 'Invalid pipeline configuration: before_all hook 1 cache is missing "key"')
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects missing cache paths" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+            cache:
+              key: bundle
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 cache paths must be a non-empty array")
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects blank cache keys" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+            cache:
+              key: " "
+              paths:
+                - tmp/cache
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, /step 1 cache key must be a non-empty string/)
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects unsupported cache save policies" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+            cache:
+              key: bundle
+              paths:
+                - tmp/cache
+              save_when: failure
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 cache save_when must be one of success, always")
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects unsafe cache paths" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+            cache:
+              key: bundle
+              paths:
+                - ../outside
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, /cache path must stay inside the workspace/)
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
+    it "rejects unsupported cache key expressions during safe YAML parsing" do
+      path, directory = write_config(<<~YAML)
+        steps:
+          - name: Step
+            run: echo hi
+            cache:
+              key: ${{ ruby.eval }}
+              paths:
+                - tmp/cache
+      YAML
+
+      expect { loader_for(path).load }
+        .to raise_error(MiniCi::ConfigurationError, /unsupported expression/)
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
     it "loads valid artifacts with the default policy" do
       path, directory = write_config(<<~YAML)
         steps:

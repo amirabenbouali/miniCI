@@ -107,6 +107,7 @@ RSpec.describe MiniCi::CLI do
       expect(stdout).to include("Steps: 2")
       expect(stdout).to include("After-all hooks: 0")
       expect(stdout).to include("Environment variables: 3")
+      expect(stdout).to include("Cache-producing items: 0")
       expect(stdout).to include("File: pipeline.yml")
       expect(stderr).to be_empty
     end
@@ -414,6 +415,54 @@ RSpec.describe MiniCi::CLI do
       expect(stdout).to be_empty
       expect(stderr).to include("exceeding the limit of 256")
       expect(File.exist?(marker)).to be(false)
+    ensure
+      FileUtils.remove_entry(directory) if directory
+    end
+  end
+
+  describe "cache" do
+    it "lists an empty cache directory" do
+      directory = Dir.mktmpdir
+      cache_dir = File.join(directory, "cache")
+
+      exit_code, stdout, stderr = run_cli(["cache", "list", "--cache-dir", cache_dir])
+
+      expect(exit_code).to eq(0)
+      expect(stdout).to include("Cache directory:")
+      expect(stdout).to include("No cache entries.")
+      expect(stderr).to be_empty
+    ensure
+      FileUtils.remove_entry(directory) if directory
+    end
+
+    it "requires confirmation before clearing cache entries" do
+      directory = Dir.mktmpdir
+
+      exit_code, stdout, = run_cli(["cache", "clear", "--cache-dir", File.join(directory, "cache")])
+
+      expect(exit_code).to eq(2)
+      expect(stdout).to include("Cache clear requires --yes.")
+    ensure
+      FileUtils.remove_entry(directory) if directory
+    end
+
+    it "runs with cache disabled" do
+      path, directory = write_temp_config(<<~YAML)
+        name: No Cache Run
+        steps:
+          - name: Cache step
+            run: echo hi
+            cache:
+              key: test-cache
+              paths:
+                - tmp/no-cache-example
+      YAML
+
+      exit_code, stdout, stderr = run_cli(["run", path, "--no-cache"])
+
+      expect(exit_code).to eq(0)
+      expect(stdout).to include("Cache: disabled")
+      expect(stderr).to be_empty
     ensure
       FileUtils.remove_entry(directory) if directory
     end

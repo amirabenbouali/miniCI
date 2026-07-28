@@ -29,6 +29,8 @@ module MiniCi
       if step_result.retried?
         @output.puts
         @output.puts "Step failed after #{step_result.attempt_count} attempts."
+      elsif step_result.cache_failure?
+        @output.puts "✗ Cache configuration failed"
       elsif step_result.artifact_failure? && step_result.final_attempt.success?
         @output.puts "✗ Artifact collection failed"
       elsif step_result.timed_out?
@@ -37,6 +39,32 @@ module MiniCi
         @output.puts "✗ Failed with exit code #{step_result.exit_status} in #{format_duration(step_result.duration)}"
       end
       @output.puts
+    end
+
+    def cache_restored(cache_result)
+      if cache_result.disabled?
+        @output.puts "Cache: disabled"
+      elsif cache_result.failed?
+        @output.puts "Cache: configuration failed"
+        cache_result.errors.each { |error| @output.puts "Cache error: #{error}" }
+      elsif cache_result.exact_hit?
+        @output.puts "Cache: exact hit for #{cache_result.restore_source_key} (#{cache_result.restored_file_count} files)"
+      elsif cache_result.fallback_hit?
+        @output.puts "Cache: fallback hit from #{cache_result.restore_source_key} (#{cache_result.restored_file_count} files)"
+      elsif cache_result.miss?
+        @output.puts "Cache: miss"
+      end
+
+      cache_result.warnings.each { |warning| @output.puts "Warning: #{warning}" }
+    end
+
+    def cache_saved(cache_result)
+      if cache_result.saved?
+        @output.puts "Cache: saved #{cache_result.saved_file_count} files as #{cache_result.resolved_key}"
+      else
+        @output.puts "Cache: not saved"
+      end
+      cache_result.warnings.each { |warning| @output.puts "Warning: #{warning}" }
     end
 
     def step_skipped(step_result)
@@ -130,6 +158,7 @@ module MiniCi
       @output.puts "Artifact warnings: #{pipeline_result.artifact_warning_count}" if pipeline_result.artifact_warning_count.positive?
       @output.puts "Artifact failures: #{pipeline_result.artifact_failure_count}" if pipeline_result.artifact_failure_count.positive?
       @output.puts "Artifact location: #{pipeline_result.artifact_run_directory}" if pipeline_result.artifact_run_directory
+      print_cache_summary(pipeline_result)
       @output.puts "Duration: #{format_duration(pipeline_result.total_duration)}"
       print_failures(pipeline_result)
     end
@@ -158,10 +187,22 @@ module MiniCi
         @output.puts "Artifact failures: #{matrix_run_result.artifact_failure_count}" if matrix_run_result.artifact_failure_count.positive?
         @output.puts "Artifact location: #{matrix_run_result.artifact_run_directory}"
       end
+      if matrix_run_result.cache_configured_count.positive?
+        @output.puts "Cache: #{matrix_run_result.cache_hit_count} hits, #{matrix_run_result.cache_miss_count} misses, #{matrix_run_result.cache_save_count} saves"
+        @output.puts "Cache warnings: #{matrix_run_result.cache_warning_count}" if matrix_run_result.cache_warning_count.positive?
+      end
       @output.puts "Attempts: #{matrix_run_result.total_attempts}"
     end
 
     private
+
+    def print_cache_summary(pipeline_result)
+      return unless pipeline_result.cache_configured_count.positive?
+
+      @output.puts "Cache: #{pipeline_result.cache_hit_count} hits, #{pipeline_result.cache_miss_count} misses, #{pipeline_result.cache_save_count} saves"
+      @output.puts "Cache warnings: #{pipeline_result.cache_warning_count}" if pipeline_result.cache_warning_count.positive?
+      @output.puts "Cache failures: #{pipeline_result.cache_failure_count}" if pipeline_result.cache_failure_count.positive?
+    end
 
     def main_steps_summary_line(pipeline_result)
       if pipeline_result.skipped_main_step_count.positive?
@@ -218,7 +259,9 @@ module MiniCi
     end
 
     def failure_line(step_result)
-      if step_result.artifact_failure? && step_result.final_attempt.success?
+      if step_result.cache_failure?
+        "Cache for #{step_result.step.name} failed: #{step_result.cache_result.errors.first}"
+      elsif step_result.artifact_failure? && step_result.final_attempt.success?
         "Artifact collection for #{step_result.step.name} failed: #{step_result.artifact_result.errors.first}"
       elsif step_result.timed_out?
         "#{step_result.step.name} timed out after #{format_duration(step_result.timeout)}"

@@ -4,12 +4,13 @@ require_relative "attempt_result"
 
 module MiniCi
   class StepResult
-    attr_reader :step, :attempts, :duration, :started_at, :finished_at, :category, :skip_reason, :artifact_result
+    attr_reader :step, :attempts, :duration, :started_at, :finished_at, :category, :skip_reason, :artifact_result, :cache_result
 
-    def initialize(step:, attempts: nil, success: nil, exit_status: nil, duration: nil, timed_out: false, timeout: nil, started_at: nil, finished_at: nil, category: :step, skipped: false, skip_reason: nil, artifact_result: nil)
+    def initialize(step:, attempts: nil, success: nil, exit_status: nil, duration: nil, timed_out: false, timeout: nil, started_at: nil, finished_at: nil, category: :step, skipped: false, skip_reason: nil, artifact_result: nil, cache_result: nil)
       @step = step
       @skip_reason = skip_reason
       @artifact_result = artifact_result
+      @cache_result = cache_result
       @attempts = if skipped
                     []
                   else
@@ -35,7 +36,7 @@ module MiniCi
     def success?
       return false if skipped?
 
-      final_attempt.success? && !artifact_failure?
+      final_attempt.success? && !artifact_failure? && !cache_failure?
     end
 
     def failed?
@@ -96,6 +97,14 @@ module MiniCi
 
     def artifact_failure?
       !artifact_result.nil? && artifact_result.failed?
+    end
+
+    def cache_failure?
+      !cache_result.nil? && cache_result.failed?
+    end
+
+    def cache_configured?
+      !cache_result.nil? && cache_result.configured?
     end
 
     def before_all?

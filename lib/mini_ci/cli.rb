@@ -4,6 +4,7 @@ require_relative "command_runner"
 require_relative "artifact_collector"
 require_relative "artifact_manifest"
 require_relative "artifact_run_store"
+require_relative "cache_store"
 require_relative "concurrency_config"
 require_relative "config_loader"
 require_relative "errors"
@@ -43,6 +44,8 @@ module MiniCi
         validate_pipeline(remaining_arguments)
       when "list"
         list_steps(remaining_arguments)
+      when "cache"
+        cache_command(remaining_arguments)
       when "version"
         version(remaining_arguments)
       else
@@ -68,9 +71,11 @@ module MiniCi
         Mini CI
 
         Usage:
-          mini-ci run [FILE] [--concurrency N] [--artifacts-dir DIR]
+          mini-ci run [FILE] [--concurrency N] [--artifacts-dir DIR] [--cache-dir DIR] [--no-cache]
           mini-ci validate [FILE]
           mini-ci list [FILE]
+          mini-ci cache list [--cache-dir DIR]
+          mini-ci cache clear --yes [--cache-dir DIR]
           mini-ci version
           mini-ci help
 
@@ -78,6 +83,7 @@ module MiniCi
           run       Execute a pipeline
           validate  Validate a pipeline configuration
           list      Display configured pipeline steps
+          cache     Inspect or clear the local dependency cache
           version   Display the installed version
           help      Display this help message
 
@@ -88,10 +94,11 @@ module MiniCi
     end
 
     def run_pipeline(arguments)
-      config_path, concurrency_override, artifacts_dir = run_options_from(arguments)
+      config_path, concurrency_override, artifacts_dir, cache_dir, cache_enabled = run_options_from(arguments)
       config = load_config(config_path)
       artifact_store = artifact_store_for(config, artifacts_dir)
       artifact_collector = artifact_store ? ArtifactCollector.new(workspace: Dir.pwd) : nil
+      cache_store = cache_enabled ? CacheStore.new(root: cache_dir || CacheStore::DEFAULT_ROOT, workspace: Dir.pwd) : nil
       if config.matrix
         result = MatrixRunner.new(
           name: config.name,
@@ -104,6 +111,8 @@ module MiniCi
           concurrency: concurrency_override || config.concurrency,
           artifact_collector: artifact_collector,
           artifact_store: artifact_store,
+          cache_store: cache_store,
+          cache_enabled: cache_enabled,
           reporter: Reporter.new(output: @output)
         ).run
         write_manifest(artifact_store, result, config.name, matrix: true)
@@ -121,6 +130,8 @@ module MiniCi
         artifact_collector: artifact_collector,
         artifact_store: artifact_store,
         artifact_job_directory: artifact_job_directory,
+        cache_store: cache_store,
+        cache_enabled: cache_enabled,
         reporter: Reporter.new(output: @output)
       ).run
       write_manifest(artifact_store, result, config.name, matrix: false)
@@ -143,6 +154,7 @@ module MiniCi
       @output.puts "Environment variables: #{config.env.length}"
       @output.puts "Conditional items: #{conditional_item_count(config)}"
       @output.puts "Artifact-producing items: #{artifact_item_count(config)}"
+      @output.puts "Cache-producing items: #{cache_item_count(config)}"
       @output.puts "File: #{config_path}"
 
       SUCCESS
@@ -179,6 +191,7 @@ module MiniCi
         @output.puts "     When: #{step.when_policy}" if step.when_policy_explicit?
         @output.puts "     If: #{step.condition.source}" if step.condition
         print_artifacts(step.artifacts)
+        print_cache(step.cache)
         print_step_environment(step.env)
         @output.puts
       end
@@ -203,6 +216,8 @@ module MiniCi
       remaining = arguments.dup
       concurrency = nil
       artifacts_dir = nil
+      cache_dir = nil
+      cache_enabled = true
 
       index = 0
       while index < remaining.length
@@ -219,12 +234,93 @@ module MiniCi
 
           artifacts_dir = value
           remaining.slice!(index, 2)
+        elsif argument == "--cache-dir"
+          value = remaining[index + 1]
+          raise UsageError, "--cache-dir requires a value" unless value
+
+          cache_dir = value
+          remaining.slice!(index, 2)
+        elsif argument == "--no-cache"
+          cache_enabled = false
+          remaining.slice!(index, 1)
         else
           index += 1
         end
       end
 
-      [config_path_from(remaining, "run"), concurrency, artifacts_dir]
+      [config_path_from(remaining, "run"), concurrency, artifacts_dir, cache_dir, cache_enabled]
+    end
+
+    def cache_command(arguments)
+      subcommand, *remaining = arguments
+      case subcommand
+      when "list"
+        cache_list(remaining)
+      when "clear"
+        cache_clear(remaining)
+      else
+        usage_error("cache requires list or clear")
+      end
+    end
+
+    def cache_list(arguments)
+      cache_dir = cache_options_from(arguments, command: "cache list")
+      store = CacheStore.new(root: cache_dir || CacheStore::DEFAULT_ROOT, workspace: Dir.pwd)
+      entries = store.list_entries
+
+      @output.puts "Cache directory: #{store.root}"
+      if entries.empty?
+        @output.puts "No cache entries."
+      else
+        entries.each_with_index do |entry, index|
+          @output.puts "#{index + 1}. #{entry.key}"
+          @output.puts "   Files: #{entry.file_count}"
+          @output.puts "   Size: #{entry.size_bytes} bytes"
+          @output.puts "   Created: #{entry.created_at.iso8601 if entry.created_at}"
+        end
+      end
+      SUCCESS
+    end
+
+    def cache_clear(arguments)
+      yes = false
+      remaining = arguments.dup
+      if remaining.include?("--yes")
+        yes = true
+        remaining.delete("--yes")
+      end
+
+      cache_dir = cache_options_from(remaining, command: "cache clear")
+      unless yes
+        @output.puts "Cache clear requires --yes."
+        return USAGE_ERROR
+      end
+
+      store = CacheStore.new(root: cache_dir || CacheStore::DEFAULT_ROOT, workspace: Dir.pwd)
+      count = store.clear!
+      @output.puts "Cleared #{count} cache entries from #{store.root}."
+      SUCCESS
+    end
+
+    def cache_options_from(arguments, command:)
+      remaining = arguments.dup
+      cache_dir = nil
+      index = 0
+      while index < remaining.length
+        argument = remaining[index]
+        if argument == "--cache-dir"
+          value = remaining[index + 1]
+          raise UsageError, "--cache-dir requires a value" unless value
+
+          cache_dir = value
+          remaining.slice!(index, 2)
+        else
+          index += 1
+        end
+      end
+
+      reject_extra_arguments!(command, remaining)
+      cache_dir
     end
 
     def parse_concurrency_override(value)
@@ -253,6 +349,10 @@ module MiniCi
 
     def artifact_item_count(config)
       (config.before_all + config.steps + config.after_all).count(&:artifacts)
+    end
+
+    def cache_item_count(config)
+      (config.before_all + config.steps + config.after_all).count(&:cache)
     end
 
     def artifact_store_for(config, artifacts_dir)
@@ -340,6 +440,22 @@ module MiniCi
       @output.puts "       When: #{artifacts.when_policy}"
       @output.puts "       Paths:"
       artifacts.paths.each do |path|
+        @output.puts "         - #{path}"
+      end
+    end
+
+    def print_cache(cache)
+      return unless cache
+
+      @output.puts "     Cache:"
+      @output.puts "       Key: #{cache.key}"
+      unless cache.restore_keys.empty?
+        @output.puts "       Restore keys:"
+        cache.restore_keys.each { |key| @output.puts "         - #{key}" }
+      end
+      @output.puts "       Save when: #{cache.save_when}"
+      @output.puts "       Paths:"
+      cache.paths.each do |path|
         @output.puts "         - #{path}"
       end
     end

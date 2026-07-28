@@ -108,6 +108,42 @@ module MiniCi
       all_results.select(&:artifact_failure?)
     end
 
+    def cache_configured_count
+      all_results.count(&:cache_configured?)
+    end
+
+    def cache_exact_hit_count
+      all_results.count { |result| result.cache_result&.exact_hit? }
+    end
+
+    def cache_fallback_hit_count
+      all_results.count { |result| result.cache_result&.fallback_hit? }
+    end
+
+    def cache_hit_count
+      cache_exact_hit_count + cache_fallback_hit_count
+    end
+
+    def cache_miss_count
+      all_results.count { |result| result.cache_result&.miss? }
+    end
+
+    def cache_save_count
+      all_results.count { |result| result.cache_result&.saved? }
+    end
+
+    def cache_warning_count
+      all_results.sum { |result| result.cache_result&.warnings&.length || 0 }
+    end
+
+    def cache_failure_count
+      all_results.count(&:cache_failure?)
+    end
+
+    def cache_failures
+      all_results.select(&:cache_failure?)
+    end
+
     def before_all_passed_count
       before_all_results.count(&:success?)
     end
