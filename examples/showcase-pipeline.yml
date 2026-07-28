@@ -1,0 +1,36 @@
+name: Mini CI Showcase
+
+env:
+  APP_ENV: test
+
+matrix:
+  track:
+    - ruby-3.1
+    - ruby-3.2
+
+concurrency: 2
+
+before_all:
+  - name: Prepare workspace
+    run: bash scripts/showcase_prepare.sh
+
+steps:
+  - name: Display environment
+    run: echo "track=$MATRIX_TRACK app=$APP_ENV"
+
+  - name: Run checks
+    run: bash scripts/showcase_check.sh
+    retries: 1
+    retry_delay: 0.1
+
+  - name: Generate report
+    run: bash scripts/showcase_report.sh
+    artifacts:
+      when: always
+      paths:
+        - tmp/showcase/reports/
+
+after_all:
+  - name: Cleanup
+    run: bash scripts/showcase_cleanup.sh
+    when: always

@@ -1,7 +1,17 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-require "bundler/setup"
-require_relative "../lib/mini_ci"
+begin
+  begin
+    require "mini_ci"
+  rescue LoadError
+    require_relative "../lib/mini_ci"
+  end
 
-exit MiniCi::CLI.new(arguments: ARGV).call
+  exit MiniCi::CLI.new(arguments: ARGV).call
+rescue Interrupt
+  warn "Mini CI interrupted."
+  exit MiniCi::ExitCode::INTERRUPTED
+rescue Errno::EPIPE
+  exit MiniCi::ExitCode::SUCCESS
+end

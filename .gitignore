@@ -1,5 +1,6 @@
 /.bundle/
 /coverage/
+/pkg/
 /logs/
 /matrix-artifacts/
 /reports/

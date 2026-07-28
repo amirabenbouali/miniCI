@@ -43,7 +43,7 @@ RSpec.describe MiniCi::CLI do
       exit_code, stdout, = run_cli(["help"])
 
       expect(exit_code).to eq(0)
-      expect(stdout).to include("mini-ci run [FILE]")
+      expect(stdout).to include("mini-ci [--debug] run [FILE]")
     end
 
     it "displays help for --help" do
@@ -65,7 +65,7 @@ RSpec.describe MiniCi::CLI do
 
       expect(exit_code).to eq(2)
       expect(stdout).to be_empty
-      expect(stderr).to include('Mini CI error: unknown command "deploy"')
+      expect(stderr).to include('Mini CI usage error: unknown command "deploy"')
       expect(stderr).to include("Run `mini-ci help` for usage information.")
     end
 
@@ -74,7 +74,7 @@ RSpec.describe MiniCi::CLI do
 
       expect(exit_code).to eq(2)
       expect(stdout).to be_empty
-      expect(stderr).to include("Mini CI error: missing.yml was not found")
+      expect(stderr).to include("Mini CI configuration error: missing.yml was not found")
     end
   end
 
@@ -92,7 +92,7 @@ RSpec.describe MiniCi::CLI do
 
       expect(exit_code).to eq(2)
       expect(stdout).to be_empty
-      expect(stderr).to include("Mini CI error: version does not accept extra arguments")
+      expect(stderr).to include("Mini CI usage error: version does not accept extra arguments")
     end
   end
 
@@ -102,6 +102,25 @@ RSpec.describe MiniCi::CLI do
 
       expect(exit_code).to eq(0)
       expect(stdout).to include("mini-ci dashboard")
+      expect(stderr).to be_empty
+    end
+  end
+
+  describe "command help" do
+    it "shows run help without requiring a configuration file" do
+      exit_code, stdout, stderr = run_cli(["run", "--help"])
+
+      expect(exit_code).to eq(0)
+      expect(stdout).to include("Usage: mini-ci run [FILE] [options]")
+      expect(stdout).to include("--no-history")
+      expect(stderr).to be_empty
+    end
+
+    it "shows cache help" do
+      exit_code, stdout, stderr = run_cli(["cache", "--help"])
+
+      expect(exit_code).to eq(0)
+      expect(stdout).to include("mini-ci cache list")
       expect(stderr).to be_empty
     end
   end
@@ -150,7 +169,7 @@ RSpec.describe MiniCi::CLI do
 
       expect(exit_code).to eq(2)
       expect(stdout).to be_empty
-      expect(stderr).to include('Mini CI error: Invalid pipeline configuration: missing "steps"')
+      expect(stderr).to include('Mini CI configuration error: Invalid pipeline configuration: missing "steps"')
     ensure
       FileUtils.remove_entry(directory) if directory
     end
@@ -245,7 +264,7 @@ RSpec.describe MiniCi::CLI do
 
       expect(exit_code).to eq(2)
       expect(stdout).to be_empty
-      expect(stderr).to include("Mini CI error: Invalid pipeline configuration:")
+      expect(stderr).to include("Mini CI configuration error: Invalid pipeline configuration:")
       expect(stderr).to include("APP-NAME")
     ensure
       FileUtils.remove_entry(directory) if directory
@@ -834,7 +853,7 @@ RSpec.describe MiniCi::CLI do
 
       expect(exit_code).to eq(2)
       expect(stdout).to be_empty
-      expect(stderr).to include("Mini CI error: concurrency must be a positive integer")
+      expect(stderr).to include("Mini CI usage error: concurrency must be a positive integer")
     end
 
     it "returns 1 for the parallel failure example and keeps running later jobs" do
@@ -917,7 +936,7 @@ RSpec.describe MiniCi::CLI do
 
       expect(exit_code).to eq(2)
       expect(stdout).to be_empty
-      expect(stderr).to include("Mini CI error: run accepts at most one file argument")
+      expect(stderr).to include("Mini CI usage error: run accepts at most one file argument")
     end
 
     it "rejects extra help arguments" do
@@ -925,7 +944,7 @@ RSpec.describe MiniCi::CLI do
 
       expect(exit_code).to eq(2)
       expect(stdout).to be_empty
-      expect(stderr).to include("Mini CI error: help does not accept extra arguments")
+      expect(stderr).to include("Mini CI usage error: help does not accept extra arguments")
     end
   end
 end

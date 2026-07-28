@@ -1,3 +1,11 @@
+PATH
+  remote: .
+  specs:
+    mini_ci (1.0.0)
+      rackup (~> 2.2)
+      sinatra (~> 4.1)
+      webrick (~> 1.8)
+
 GEM
   remote: https://rubygems.org/
   specs:
@@ -45,12 +53,10 @@ PLATFORMS
   ruby
 
 DEPENDENCIES
+  mini_ci!
   rack-test (~> 2.1)
-  rackup (~> 2.2)
   rake (~> 13.0)
   rspec (~> 3.13)
-  sinatra (~> 4.1)
-  webrick (~> 1.8)
 
 BUNDLED WITH
   4.0.17

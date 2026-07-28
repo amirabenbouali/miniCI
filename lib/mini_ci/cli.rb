@@ -9,9 +9,8 @@ require_relative "artifact_run_store"
 require_relative "cache_store"
 require_relative "concurrency_config"
 require_relative "config_loader"
-require_relative "dashboard/app"
-require_relative "dashboard/configuration"
 require_relative "errors"
+require_relative "exit_code"
 require_relative "matrix_expander"
 require_relative "matrix_runner"
 require_relative "pipeline"
@@ -27,12 +26,14 @@ require_relative "version"
 
 module MiniCi
   class CLI
-    SUCCESS = 0
-    PIPELINE_FAILURE = 1
-    USAGE_ERROR = 2
-    INTERNAL_ERROR = 3
+    SUCCESS = ExitCode::SUCCESS
+    PIPELINE_FAILURE = ExitCode::PIPELINE_FAILURE
+    USAGE_ERROR = ExitCode::USAGE_ERROR
+    INTERNAL_ERROR = ExitCode::INTERNAL_ERROR
+    INTERRUPTED = ExitCode::INTERRUPTED
 
     HELP_COMMANDS = ["help", "--help", "-h"].freeze
+    HELP_OPTIONS = ["--help", "-h"].freeze
 
     def initialize(arguments:, output: $stdout, error_output: $stderr)
       @arguments = arguments
@@ -41,9 +42,11 @@ module MiniCi
     end
 
     def call
+      @debug = extract_debug_option!
       command, *remaining_arguments = @arguments
 
       return help(remaining_arguments) if command.nil? || HELP_COMMANDS.include?(command)
+      return command_help(command) if HELP_OPTIONS.any? { |option| remaining_arguments.delete(option) }
 
       case command
       when "run"
@@ -64,17 +67,35 @@ module MiniCi
         usage_error("unknown command #{command.inspect}")
       end
     rescue ConfigurationError, FileNotFoundError, PluginError => e
-      print_error(e.message)
+      print_error(e.message, type: error_type(e))
       USAGE_ERROR
     rescue UsageError => e
-      print_error(e.message)
+      print_error(e.message, type: "usage")
       USAGE_ERROR
     rescue InternalError => e
-      print_error(e.message)
+      print_error(e.message, type: "internal")
+      INTERNAL_ERROR
+    rescue Interrupt
+      @error_output.puts "Mini CI interrupted."
+      INTERRUPTED
+    rescue StandardError => e
+      print_unexpected_error(e)
       INTERNAL_ERROR
     end
 
     private
+
+    def extract_debug_option!
+      debug = false
+      @arguments = @arguments.each_with_object([]) do |argument, kept|
+        if argument == "--debug"
+          debug = true
+        else
+          kept << argument
+        end
+      end
+      debug
+    end
 
     def help(arguments = [])
       reject_extra_arguments!("help", arguments)
@@ -83,9 +104,9 @@ module MiniCi
         Mini CI
 
         Usage:
-          mini-ci run [FILE] [--concurrency N] [--artifacts-dir DIR] [--cache-dir DIR] [--no-cache] [--no-history] [--plugin FILE] [--plugin-dir DIR]
-          mini-ci validate [FILE] [--plugin FILE] [--plugin-dir DIR]
-          mini-ci list [FILE] [--plugin FILE] [--plugin-dir DIR]
+          mini-ci [--debug] run [FILE] [--concurrency N] [--artifacts-dir DIR] [--cache-dir DIR] [--no-cache] [--no-history] [--plugin FILE] [--plugin-dir DIR]
+          mini-ci [--debug] validate [FILE] [--plugin FILE] [--plugin-dir DIR]
+          mini-ci [--debug] list [FILE] [--plugin FILE] [--plugin-dir DIR]
           mini-ci cache list [--cache-dir DIR]
           mini-ci cache clear --yes [--cache-dir DIR]
           mini-ci plugins list [--plugin FILE] [--plugin-dir DIR]
@@ -105,9 +126,62 @@ module MiniCi
           help      Display this help message
 
         FILE defaults to #{ConfigLoader::DEFAULT_CONFIG_FILE}.
+        Exit codes: 0 success, 1 pipeline/runtime failure, 2 usage or configuration error, 3 internal error, 130 interrupted.
       HELP
 
       SUCCESS
+    end
+
+    def command_help(command)
+      case command
+      when "run"
+        @output.puts <<~HELP
+          Usage: mini-ci run [FILE] [options]
+
+          Execute a pipeline. FILE defaults to #{ConfigLoader::DEFAULT_CONFIG_FILE}.
+
+          Options:
+            --concurrency N       Override matrix concurrency
+            -j N                  Alias for --concurrency
+            --artifacts-dir DIR   Store artifacts under DIR
+            --cache-dir DIR       Store dependency cache under DIR
+            --no-cache            Disable dependency cache restore/save
+            --no-history          Do not persist this run under .mini-ci/runs
+            --plugin FILE         Load a trusted local Ruby plugin
+            --plugin-dir DIR      Load trusted Ruby plugins from a directory
+            --debug               Print exception details for unexpected internal errors
+            --help, -h            Show this help
+        HELP
+        SUCCESS
+      when "validate"
+        @output.puts "Usage: mini-ci validate [FILE] [--plugin FILE] [--plugin-dir DIR] [--debug]"
+        SUCCESS
+      when "list"
+        @output.puts "Usage: mini-ci list [FILE] [--plugin FILE] [--plugin-dir DIR] [--debug]"
+        SUCCESS
+      when "cache"
+        @output.puts <<~HELP
+          Usage:
+            mini-ci cache list [--cache-dir DIR]
+            mini-ci cache clear --yes [--cache-dir DIR]
+        HELP
+        SUCCESS
+      when "plugins"
+        @output.puts <<~HELP
+          Usage:
+            mini-ci plugins list [--plugin FILE] [--plugin-dir DIR]
+            mini-ci plugins validate [--plugin FILE] [--plugin-dir DIR]
+        HELP
+        SUCCESS
+      when "dashboard"
+        @output.puts "Usage: mini-ci dashboard [--host HOST] [--port PORT] [--open] [--max-runs N] [--debug]"
+        SUCCESS
+      when "version"
+        @output.puts "Usage: mini-ci version"
+        SUCCESS
+      else
+        usage_error("unknown command #{command.inspect}")
+      end
     end
 
     def run_pipeline(arguments)
@@ -272,6 +346,9 @@ module MiniCi
     end
 
     def dashboard(arguments)
+      require_relative "dashboard/app"
+      require_relative "dashboard/configuration"
+
       configuration = dashboard_options_from(arguments)
       repository = RunRepository.new(workspace: Dir.pwd)
       url = "http://#{configuration.host}:#{configuration.port}"
@@ -810,14 +887,35 @@ module MiniCi
     end
 
     def usage_error(message)
-      print_error(message)
+      print_error(message, type: "usage")
       @error_output.puts
       @error_output.puts "Run `mini-ci help` for usage information."
       USAGE_ERROR
     end
 
-    def print_error(message)
-      @error_output.puts "Mini CI error: #{message}"
+    def print_error(message, type: "error")
+      @error_output.puts "Mini CI #{type} error: #{message}"
+    end
+
+    def error_type(error)
+      case error
+      when ConfigurationError, FileNotFoundError
+        "configuration"
+      when PluginError
+        "plugin"
+      else
+        "error"
+      end
+    end
+
+    def print_unexpected_error(error)
+      @error_output.puts "Mini CI internal error: an unexpected error occurred."
+      @error_output.puts "Run again with --debug for details."
+      return unless @debug
+
+      @error_output.puts
+      @error_output.puts "#{error.class}: #{error.message}"
+      Array(error.backtrace).each { |line| @error_output.puts line }
     end
   end
 end

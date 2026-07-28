@@ -2,6 +2,7 @@
 
 require "json"
 require "rack/test"
+require "mini_ci/dashboard/app"
 
 RSpec.describe MiniCi::Dashboard::App do
   include Rack::Test::Methods
