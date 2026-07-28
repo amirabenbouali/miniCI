@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "time"
+
 require_relative "command_runner"
 require_relative "artifact_collector"
 require_relative "artifact_manifest"
@@ -12,6 +14,7 @@ require_relative "matrix_expander"
 require_relative "matrix_runner"
 require_relative "pipeline"
 require_relative "pipeline_result"
+require_relative "plugin"
 require_relative "reporter"
 require_relative "step"
 require_relative "step_result"
@@ -46,12 +49,14 @@ module MiniCi
         list_steps(remaining_arguments)
       when "cache"
         cache_command(remaining_arguments)
+      when "plugins"
+        plugins_command(remaining_arguments)
       when "version"
         version(remaining_arguments)
       else
         usage_error("unknown command #{command.inspect}")
       end
-    rescue ConfigurationError, FileNotFoundError => e
+    rescue ConfigurationError, FileNotFoundError, PluginError => e
       print_error(e.message)
       USAGE_ERROR
     rescue UsageError => e
@@ -71,11 +76,13 @@ module MiniCi
         Mini CI
 
         Usage:
-          mini-ci run [FILE] [--concurrency N] [--artifacts-dir DIR] [--cache-dir DIR] [--no-cache]
-          mini-ci validate [FILE]
-          mini-ci list [FILE]
+          mini-ci run [FILE] [--concurrency N] [--artifacts-dir DIR] [--cache-dir DIR] [--no-cache] [--plugin FILE] [--plugin-dir DIR]
+          mini-ci validate [FILE] [--plugin FILE] [--plugin-dir DIR]
+          mini-ci list [FILE] [--plugin FILE] [--plugin-dir DIR]
           mini-ci cache list [--cache-dir DIR]
           mini-ci cache clear --yes [--cache-dir DIR]
+          mini-ci plugins list [--plugin FILE] [--plugin-dir DIR]
+          mini-ci plugins validate [--plugin FILE] [--plugin-dir DIR]
           mini-ci version
           mini-ci help
 
@@ -84,6 +91,7 @@ module MiniCi
           validate  Validate a pipeline configuration
           list      Display configured pipeline steps
           cache     Inspect or clear the local dependency cache
+          plugins   Inspect or validate local Ruby plugins
           version   Display the installed version
           help      Display this help message
 
@@ -94,8 +102,18 @@ module MiniCi
     end
 
     def run_pipeline(arguments)
-      config_path, concurrency_override, artifacts_dir, cache_dir, cache_enabled = run_options_from(arguments)
-      config = load_config(config_path)
+      config_path, concurrency_override, artifacts_dir, cache_dir, cache_enabled, plugin_files, plugin_dirs = run_options_from(arguments)
+      registry = load_plugins(plugin_files: plugin_files, plugin_dirs: plugin_dirs)
+      registry.freeze!
+      config = load_config(config_path, registry: registry)
+      run_id = "run-#{Time.now.utc.strftime("%Y%m%dT%H%M%SZ")}"
+      plugin_metadata = Plugin::MetadataBuilder.new
+      before_run_failure = invoke_plugin_callback(registry, :before_run, plugin_context(configuration: config, run_id: run_id, metadata: plugin_metadata))
+      if before_run_failure
+        Reporter.new(output: @output).plugin_failure(before_run_failure)
+        return PIPELINE_FAILURE
+      end
+
       artifact_store = artifact_store_for(config, artifacts_dir)
       artifact_collector = artifact_store ? ArtifactCollector.new(workspace: Dir.pwd) : nil
       cache_store = cache_enabled ? CacheStore.new(root: cache_dir || CacheStore::DEFAULT_ROOT, workspace: Dir.pwd) : nil
@@ -113,11 +131,18 @@ module MiniCi
           artifact_store: artifact_store,
           cache_store: cache_store,
           cache_enabled: cache_enabled,
+          plugin_registry: registry,
+          plugin_metadata: plugin_metadata,
+          run_id: run_id,
           reporter: Reporter.new(output: @output)
         ).run
-        write_manifest(artifact_store, result, config.name, matrix: true)
+        after_run_failure = invoke_plugin_callback(registry, :after_run, plugin_context(result: result, run_id: run_id, metadata: plugin_metadata))
+        plugin_failures = result_plugin_failures(result, after_run_failure)
+        overall_success = result.success? && plugin_failures.empty?
+        Reporter.new(output: @output).run_summary(result, plugin_failures: plugin_failures)
+        write_manifest(artifact_store, result, config.name, matrix: true, registry: registry, metadata: plugin_metadata, plugin_failures: plugin_failures, overall_success: overall_success)
 
-        return result.success? ? SUCCESS : PIPELINE_FAILURE
+        return overall_success ? SUCCESS : PIPELINE_FAILURE
       end
 
       artifact_job_directory = artifact_store&.job_directory(index: 1)
@@ -132,16 +157,25 @@ module MiniCi
         artifact_job_directory: artifact_job_directory,
         cache_store: cache_store,
         cache_enabled: cache_enabled,
+        plugin_registry: registry,
+        plugin_metadata: plugin_metadata,
+        run_id: run_id,
         reporter: Reporter.new(output: @output)
       ).run
-      write_manifest(artifact_store, result, config.name, matrix: false)
+      after_run_failure = invoke_plugin_callback(registry, :after_run, plugin_context(result: result, run_id: run_id, metadata: plugin_metadata))
+      plugin_failures = result_plugin_failures(result, after_run_failure)
+      overall_success = result.success? && plugin_failures.empty?
+      Reporter.new(output: @output).run_summary(result, plugin_failures: plugin_failures)
+      write_manifest(artifact_store, result, config.name, matrix: false, registry: registry, metadata: plugin_metadata, plugin_failures: plugin_failures, overall_success: overall_success)
 
-      result.success? ? SUCCESS : PIPELINE_FAILURE
+      overall_success ? SUCCESS : PIPELINE_FAILURE
     end
 
     def validate_pipeline(arguments)
-      config_path = config_path_from(arguments, "validate")
-      config = load_config(config_path)
+      config_path, plugin_files, plugin_dirs = config_options_from(arguments, "validate")
+      registry = load_plugins(plugin_files: plugin_files, plugin_dirs: plugin_dirs)
+      registry.freeze!
+      config = load_config(config_path, registry: registry)
 
       @output.puts "Pipeline configuration is valid."
       @output.puts
@@ -155,17 +189,23 @@ module MiniCi
       @output.puts "Conditional items: #{conditional_item_count(config)}"
       @output.puts "Artifact-producing items: #{artifact_item_count(config)}"
       @output.puts "Cache-producing items: #{cache_item_count(config)}"
+      @output.puts "Plugins loaded: #{registry.plugins.length}"
+      @output.puts "Plugin item types: #{registry.item_types.length}"
+      @output.puts "Plugin validators: #{registry.validators.length}"
       @output.puts "File: #{config_path}"
 
       SUCCESS
     end
 
     def list_steps(arguments)
-      config_path = config_path_from(arguments, "list")
-      config = load_config(config_path)
+      config_path, plugin_files, plugin_dirs = config_options_from(arguments, "list")
+      registry = load_plugins(plugin_files: plugin_files, plugin_dirs: plugin_dirs)
+      registry.freeze!
+      config = load_config(config_path, registry: registry)
 
       @output.puts config.name
       @output.puts
+      print_plugins(registry)
 
       print_global_environment(config.env)
       print_concurrency(config.concurrency)
@@ -184,7 +224,14 @@ module MiniCi
       @output.puts "#{heading}:"
       steps.each_with_index do |step, index|
         @output.puts "  #{index + 1}. #{step.name}"
-        @output.puts "     #{step.command}"
+        if step.plugin_item?
+          @output.puts "     Uses: #{step.uses}"
+          item_type = Plugin.registry.item_type(step.uses)
+          @output.puts "     Plugin: #{item_type.plugin.name}" if item_type
+          print_plugin_input(step.with)
+        else
+          @output.puts "     #{step.command}"
+        end
         @output.puts "     Timeout: #{format_timeout(step.timeout)}" if step.timeout
         @output.puts "     Retries: #{step.retries}" if step.retries.positive?
         @output.puts "     Retry delay: #{format_duration(step.retry_delay)}" if step.retries.positive? && step.retry_delay.positive?
@@ -218,6 +265,8 @@ module MiniCi
       artifacts_dir = nil
       cache_dir = nil
       cache_enabled = true
+      plugin_files = []
+      plugin_dirs = []
 
       index = 0
       while index < remaining.length
@@ -243,12 +292,51 @@ module MiniCi
         elsif argument == "--no-cache"
           cache_enabled = false
           remaining.slice!(index, 1)
+        elsif argument == "--plugin"
+          value = remaining[index + 1]
+          raise UsageError, "--plugin requires a value" unless value
+
+          plugin_files << value
+          remaining.slice!(index, 2)
+        elsif argument == "--plugin-dir"
+          value = remaining[index + 1]
+          raise UsageError, "--plugin-dir requires a value" unless value
+
+          plugin_dirs << value
+          remaining.slice!(index, 2)
         else
           index += 1
         end
       end
 
-      [config_path_from(remaining, "run"), concurrency, artifacts_dir, cache_dir, cache_enabled]
+      [config_path_from(remaining, "run"), concurrency, artifacts_dir, cache_dir, cache_enabled, plugin_files, plugin_dirs]
+    end
+
+    def config_options_from(arguments, command)
+      remaining = arguments.dup
+      plugin_files = []
+      plugin_dirs = []
+      index = 0
+      while index < remaining.length
+        argument = remaining[index]
+        if argument == "--plugin"
+          value = remaining[index + 1]
+          raise UsageError, "--plugin requires a value" unless value
+
+          plugin_files << value
+          remaining.slice!(index, 2)
+        elsif argument == "--plugin-dir"
+          value = remaining[index + 1]
+          raise UsageError, "--plugin-dir requires a value" unless value
+
+          plugin_dirs << value
+          remaining.slice!(index, 2)
+        else
+          index += 1
+        end
+      end
+
+      [config_path_from(remaining, command), plugin_files, plugin_dirs]
     end
 
     def cache_command(arguments)
@@ -261,6 +349,59 @@ module MiniCi
       else
         usage_error("cache requires list or clear")
       end
+    end
+
+    def plugins_command(arguments)
+      subcommand, *remaining = arguments
+      plugin_files, plugin_dirs = plugin_options_from(remaining)
+      registry = load_plugins(plugin_files: plugin_files, plugin_dirs: plugin_dirs)
+      registry.freeze!
+
+      case subcommand
+      when "list"
+        @output.puts "Loaded plugins"
+        @output.puts
+        print_plugin_details(registry)
+        SUCCESS
+      when "validate"
+        @output.puts "Plugin validation passed."
+        @output.puts
+        @output.puts "Plugins: #{registry.plugins.length}"
+        @output.puts "Callbacks: #{MiniCi::Plugin::Definition::CALLBACK_EVENTS.sum { |event| registry.callbacks_for(event).length }}"
+        @output.puts "Custom item types: #{registry.item_types.length}"
+        @output.puts "Validators: #{registry.validators.length}"
+        SUCCESS
+      else
+        usage_error("plugins requires list or validate")
+      end
+    end
+
+    def plugin_options_from(arguments)
+      remaining = arguments.dup
+      plugin_files = []
+      plugin_dirs = []
+      index = 0
+      while index < remaining.length
+        argument = remaining[index]
+        if argument == "--plugin"
+          value = remaining[index + 1]
+          raise UsageError, "--plugin requires a value" unless value
+
+          plugin_files << value
+          remaining.slice!(index, 2)
+        elsif argument == "--plugin-dir"
+          value = remaining[index + 1]
+          raise UsageError, "--plugin-dir requires a value" unless value
+
+          plugin_dirs << value
+          remaining.slice!(index, 2)
+        else
+          index += 1
+        end
+      end
+
+      reject_extra_arguments!("plugins", remaining)
+      [plugin_files, plugin_dirs]
     end
 
     def cache_list(arguments)
@@ -337,8 +478,8 @@ module MiniCi
       raise UsageError, "#{command} does not accept extra arguments"
     end
 
-    def load_config(config_path)
-      ConfigLoader.new(path: config_path).load
+    def load_config(config_path, registry: Plugin.registry)
+      ConfigLoader.new(path: config_path, plugin_registry: registry).load
     end
 
     def conditional_item_count(config)
@@ -361,14 +502,74 @@ module MiniCi
       ArtifactRunStore.new(root: artifacts_dir || ArtifactRunStore::DEFAULT_ROOT, workspace: Dir.pwd)
     end
 
-    def write_manifest(artifact_store, result, pipeline_name, matrix:)
+    def write_manifest(artifact_store, result, pipeline_name, matrix:, registry: Plugin.registry, metadata: nil, plugin_failures: [], overall_success: nil)
       return unless artifact_store
 
-      manifest = ArtifactManifest.new(store: artifact_store)
+      manifest = ArtifactManifest.new(store: artifact_store, plugin_registry: registry, plugin_metadata: metadata, plugin_failures: plugin_failures)
       if matrix
-        manifest.write_for_matrix(result, pipeline_name: pipeline_name)
+        manifest.write_for_matrix(result, pipeline_name: pipeline_name, overall_success: overall_success)
       else
-        manifest.write_for_pipeline(result, pipeline_name: pipeline_name)
+        manifest.write_for_pipeline(result, pipeline_name: pipeline_name, overall_success: overall_success)
+      end
+    end
+
+    def result_plugin_failures(result, after_run_failure)
+      failures =
+        if result.respond_to?(:plugin_failures)
+          result.plugin_failures
+        elsif result.respond_to?(:matrix_job_results)
+          result.matrix_job_results.flat_map { |job| job.pipeline_result.plugin_failures }
+        else
+          []
+        end
+      failures + [after_run_failure].compact
+    end
+
+    def load_plugins(plugin_files:, plugin_dirs:)
+      Plugin.reset!
+      registry = Plugin.registry
+      Plugin::Loader.new(registry: registry, workspace: Dir.pwd).load(
+        default: true,
+        directories: plugin_dirs,
+        files: plugin_files
+      )
+      registry
+    end
+
+    def invoke_plugin_callback(registry, event, context)
+      Plugin::Runner.new(registry: registry).invoke(event, context)
+    end
+
+    def plugin_context(configuration: nil, result: nil, run_id:, metadata:)
+      Plugin::Context.new(
+        configuration: configuration,
+        result: result,
+        workspace: Dir.pwd,
+        run_id: run_id,
+        metadata: metadata,
+        output: @output
+      )
+    end
+
+    def print_plugins(registry)
+      return if registry.plugins.empty?
+
+      @output.puts "Plugins: #{registry.plugins.map { |plugin| "#{plugin.name} #{plugin.version}" }.join(", ")}"
+      @output.puts
+    end
+
+    def print_plugin_details(registry)
+      if registry.plugins.empty?
+        @output.puts "No plugins loaded."
+        return
+      end
+
+      registry.plugins.each_with_index do |plugin, index|
+        @output.puts "#{index + 1}. #{plugin.name} #{plugin.version}"
+        @output.puts "   #{plugin.description}" if plugin.description
+        @output.puts "   Source: #{plugin.source_path}" if plugin.source_path
+        item_types = plugin.item_types.map(&:name)
+        @output.puts "   Item types: #{item_types.join(", ")}" unless item_types.empty?
       end
     end
 
@@ -457,6 +658,15 @@ module MiniCi
       @output.puts "       Paths:"
       cache.paths.each do |path|
         @output.puts "         - #{path}"
+      end
+    end
+
+    def print_plugin_input(input)
+      return if input.empty?
+
+      @output.puts "     Input:"
+      input.each do |key, value|
+        @output.puts "       #{key}: #{value}"
       end
     end
 

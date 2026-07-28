@@ -46,6 +46,10 @@ module MiniCi
       !success?
     end
 
+    def status
+      success? ? "passed" : "failed"
+    end
+
     def passed_count
       step_results.count(&:success?)
     end
@@ -142,6 +146,14 @@ module MiniCi
 
     def cache_failures
       all_results.select(&:cache_failure?)
+    end
+
+    def plugin_failures
+      all_results.map(&:plugin_failure).compact
+    end
+
+    def plugin_failure_count
+      plugin_failures.length
     end
 
     def before_all_passed_count

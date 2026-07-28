@@ -1,0 +1,5 @@
+name: Plugin Callback Failure Example
+
+steps:
+  - name: Successful command before callback failure
+    run: echo "command succeeded before plugin callback failed"

@@ -2,6 +2,8 @@
 
 module MiniCi
   class Reporter
+    attr_reader :output
+
     def initialize(output: $stdout)
       @output = output
     end
@@ -31,6 +33,8 @@ module MiniCi
         @output.puts "Step failed after #{step_result.attempt_count} attempts."
       elsif step_result.cache_failure?
         @output.puts "✗ Cache configuration failed"
+      elsif step_result.plugin_failure?
+        @output.puts "✗ Plugin failed"
       elsif step_result.artifact_failure? && step_result.final_attempt.success?
         @output.puts "✗ Artifact collection failed"
       elsif step_result.timed_out?
@@ -39,6 +43,32 @@ module MiniCi
         @output.puts "✗ Failed with exit code #{step_result.exit_status} in #{format_duration(step_result.duration)}"
       end
       @output.puts
+    end
+
+    def plugin_failure(failure)
+      @output.puts failure.summary
+      @output.puts
+    end
+
+    def run_summary(result, plugin_failures:)
+      return if plugin_failures.empty?
+
+      @output.puts "Run summary"
+      @output.puts
+      @output.puts "Pipeline execution: #{result.success? ? "PASSED" : "FAILED"}"
+      @output.puts
+      @output.puts "Plugin failures:"
+      plugin_failures.each do |failure|
+        @output.puts "- #{failure.plugin_name} during #{failure.event}: #{failure.message}"
+      end
+      @output.puts
+      @output.puts "Overall status: FAILED"
+    end
+
+    def plugin_item_output(step_result)
+      return unless step_result.plugin_item_result&.output
+
+      @output.puts step_result.plugin_item_result.output
     end
 
     def cache_restored(cache_result)
@@ -202,6 +232,7 @@ module MiniCi
       @output.puts "Cache: #{pipeline_result.cache_hit_count} hits, #{pipeline_result.cache_miss_count} misses, #{pipeline_result.cache_save_count} saves"
       @output.puts "Cache warnings: #{pipeline_result.cache_warning_count}" if pipeline_result.cache_warning_count.positive?
       @output.puts "Cache failures: #{pipeline_result.cache_failure_count}" if pipeline_result.cache_failure_count.positive?
+      @output.puts "Plugin failures: #{pipeline_result.plugin_failure_count}" if pipeline_result.plugin_failure_count.positive?
     end
 
     def main_steps_summary_line(pipeline_result)
@@ -261,6 +292,8 @@ module MiniCi
     def failure_line(step_result)
       if step_result.cache_failure?
         "Cache for #{step_result.step.name} failed: #{step_result.cache_result.errors.first}"
+      elsif step_result.plugin_failure? && step_result.exit_status.nil?
+        "Plugin for #{step_result.step.name} failed: #{step_result.plugin_failure.summary}"
       elsif step_result.artifact_failure? && step_result.final_attempt.success?
         "Artifact collection for #{step_result.step.name} failed: #{step_result.artifact_result.errors.first}"
       elsif step_result.timed_out?

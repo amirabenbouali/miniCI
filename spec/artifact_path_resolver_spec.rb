@@ -34,6 +34,32 @@ RSpec.describe MiniCi::ArtifactPathResolver do
     FileUtils.remove_entry(directory) if directory
   end
 
+  it "resolves configured environment expressions in artifact paths" do
+    directory = Dir.mktmpdir
+    write_file(File.join(directory, "matrix-artifacts/alpha/results.xml"))
+    write_file(File.join(directory, "matrix-artifacts/beta/results.xml"))
+    resolver = described_class.new(workspace: directory)
+
+    result = resolver.resolve(["matrix-artifacts/${{ env.MATRIX_JOB }}/"], env: { "MATRIX_JOB" => "alpha" })
+
+    expect(result.errors).to be_empty
+    expect(result.sources.map { |path| resolver.relative_path_for(path) }).to eq(["matrix-artifacts/alpha"])
+  ensure
+    FileUtils.remove_entry(directory) if directory
+  end
+
+  it "rejects unsafe environment values in artifact paths" do
+    directory = Dir.mktmpdir
+    resolver = described_class.new(workspace: directory)
+
+    result = resolver.resolve(["matrix-artifacts/${{ env.MATRIX_JOB }}/"], env: { "MATRIX_JOB" => "../outside" })
+
+    expect(result.sources).to be_empty
+    expect(result.errors.first).to include("must stay inside the workspace")
+  ensure
+    FileUtils.remove_entry(directory) if directory
+  end
+
   it "rejects symlinks resolving outside the workspace" do
     directory = Dir.mktmpdir
     outside = Dir.mktmpdir

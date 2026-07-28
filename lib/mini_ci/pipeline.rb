@@ -2,6 +2,7 @@
 
 require_relative "cache_key_resolver"
 require_relative "cache_result"
+require_relative "plugin"
 
 module MiniCi
   class Pipeline
@@ -19,6 +20,10 @@ module MiniCi
       cache_store: nil,
       cache_enabled: true,
       cache_key_resolver: nil,
+      plugin_registry: Plugin.registry,
+      plugin_metadata: nil,
+      run_id: nil,
+      matrix_values: {},
       clock: -> { Process.clock_gettime(Process::CLOCK_MONOTONIC) },
       sleeper: ->(seconds) { sleep(seconds) },
       announce_header: true
@@ -36,6 +41,11 @@ module MiniCi
       @cache_store = cache_store
       @cache_enabled = cache_enabled
       @cache_key_resolver = cache_key_resolver || CacheKeyResolver.new(workspace: Dir.pwd)
+      @plugin_registry = plugin_registry
+      @plugin_runner = Plugin::Runner.new(registry: plugin_registry)
+      @plugin_metadata = plugin_metadata || Plugin::MetadataBuilder.new
+      @run_id = run_id
+      @matrix_values = matrix_values.dup.freeze
       @clock = clock
       @sleeper = sleeper
       @announce_header = announce_header
@@ -43,12 +53,14 @@ module MiniCi
 
     def run
       @reporter.header(@name) if @announce_header
+      before_pipeline_failure = invoke_plugin_callback(:before_pipeline, pipeline_context)
 
       pipeline_started_at = @clock.call
       before_all_results = []
       step_results = []
       after_all_results = []
-      pipeline_failed = false
+      pipeline_failed = !before_pipeline_failure.nil?
+      before_all_results << plugin_failure_result(before_pipeline_failure, category: :before_all) if before_pipeline_failure
 
       pipeline_failed = run_phase(
         @before_all,
@@ -86,7 +98,24 @@ module MiniCi
         artifact_run_directory: @artifact_store&.run_directory
       )
 
+      after_pipeline_failure = invoke_plugin_callback(:after_pipeline, pipeline_context(result: pipeline_result))
+      if after_pipeline_failure
+        after_all_results << plugin_failure_result(after_pipeline_failure, category: :after_all)
+        pipeline_result = PipelineResult.new(
+          name: @name,
+          configured_before_all_count: @before_all.length,
+          configured_step_count: @steps.length,
+          configured_after_all_count: @after_all.length,
+          before_all_results: before_all_results,
+          step_results: step_results,
+          after_all_results: after_all_results,
+          total_duration: @clock.call - pipeline_started_at,
+          artifact_run_directory: @artifact_store&.run_directory
+        )
+      end
+
       @reporter.summary(pipeline_result)
+      invoke_plugin_callback(:after_report, pipeline_context(result: pipeline_result))
       pipeline_result
     end
 
@@ -125,9 +154,11 @@ module MiniCi
       step_result = run_step(step, category: category, index: index)
 
       if step_result.success?
+        @reporter.plugin_item_output(step_result) if step.plugin_item?
         @reporter.step_passed(step_result) unless step_result.retried?
       else
         @reporter.step_failed(step_result)
+        @reporter.plugin_failure(step_result.plugin_failure) if step_result.plugin_failure?
       end
       @reporter.artifacts(step_result) if step_result.artifact_result
 
@@ -181,6 +212,21 @@ module MiniCi
     def run_step(step, category:, index:)
       started_at = @clock.call
       attempts = []
+      @last_plugin_item_result = nil
+      @last_plugin_failure = nil
+      @current_category = category
+      before_item_failure = invoke_plugin_callback(:before_item, item_context(step, category: category))
+      if before_item_failure
+        return StepResult.new(
+          step: step,
+          success: false,
+          exit_status: nil,
+          duration: @clock.call - started_at,
+          category: category,
+          plugin_failure: before_item_failure
+        )
+      end
+
       cache_result = restore_cache(step)
 
       if cache_result&.failed?
@@ -202,12 +248,7 @@ module MiniCi
         attempt_number = attempt_index + 1
         @reporter.attempt_started(attempt_number, total: step.maximum_attempts) if step.maximum_attempts > 1
 
-        attempt = @command_runner.run(
-          step.command,
-          env: @env.merge(step.env),
-          timeout: step.timeout,
-          attempt_number: attempt_number
-        )
+        attempt = execute_attempt(step, attempt_number)
         attempts << attempt
 
         if step.maximum_attempts == 1
@@ -226,10 +267,55 @@ module MiniCi
         attempts: attempts,
         duration: @clock.call - started_at,
         category: category,
-        cache_result: cache_result
+        cache_result: cache_result,
+        plugin_item_result: @last_plugin_item_result
       )
       step_result = attach_artifacts(step_result, category: category, index: index)
-      attach_cache_save(step_result)
+      step_result = attach_cache_save(step_result)
+      attach_after_item_callback(step_result, category: category)
+    end
+
+    def execute_attempt(step, attempt_number)
+      if step.plugin_item?
+        execute_plugin_item(step, attempt_number)
+      else
+        @command_runner.run(
+          step.command,
+          env: @env.merge(step.env),
+          timeout: step.timeout,
+          attempt_number: attempt_number
+        )
+      end
+    end
+
+    def execute_plugin_item(step, attempt_number)
+      started_at = @clock.call
+      item_type = @plugin_registry.item_type(step.uses)
+      context = item_context(step, category: @current_category).new_with(output: reporter_output)
+      @last_plugin_item_result = item_type.execute(step.with, context)
+      AttemptResult.new(
+        attempt_number: attempt_number,
+        success: @last_plugin_item_result.success?,
+        exit_status: @last_plugin_item_result.success? ? 0 : 1,
+        duration: @clock.call - started_at
+      )
+    rescue StandardError => e
+      failure = PluginFailure.new(
+        plugin_name: item_type&.plugin&.name || step.uses,
+        plugin_version: item_type&.plugin&.version || "unknown",
+        event: :execute_item,
+        message: e.message,
+        exception_class: e.class.name,
+        backtrace: e.backtrace
+      )
+      @last_plugin_item_result = Plugin::ItemResult.new(
+        success: false,
+        plugin_name: failure.plugin_name,
+        item_type: step.uses,
+        failure: failure.message
+      )
+      @last_plugin_failure = failure
+      AttemptResult.new(attempt_number: attempt_number, success: false, exit_status: 1, duration: @clock.call - started_at)
     end
 
     def attach_artifacts(step_result, category:, index:)
@@ -241,7 +327,11 @@ module MiniCi
         index: index,
         name: step_result.step.name
       )
-      artifact_result = @artifact_collector.collect(step_result.step.artifacts, destination: destination)
+      artifact_result = @artifact_collector.collect(
+        step_result.step.artifacts,
+        destination: destination,
+        env: ENV.to_h.merge(@env).merge(step_result.step.env)
+      )
 
       StepResult.new(
         step: step_result.step,
@@ -249,7 +339,9 @@ module MiniCi
         duration: step_result.duration,
         category: category,
         artifact_result: artifact_result,
-        cache_result: step_result.cache_result
+        cache_result: step_result.cache_result,
+        plugin_item_result: step_result.plugin_item_result,
+        plugin_failure: step_result.plugin_failure
       )
     end
 
@@ -286,7 +378,29 @@ module MiniCi
         duration: step_result.duration,
         category: step_result.category,
         artifact_result: step_result.artifact_result,
-        cache_result: cache_result
+        cache_result: cache_result,
+        plugin_item_result: step_result.plugin_item_result,
+        plugin_failure: step_result.plugin_failure
+      )
+    end
+
+    def attach_after_item_callback(step_result, category:)
+      failure = @last_plugin_failure || invoke_plugin_callback(
+        :after_item,
+        item_context(step_result.step, category: category, item_result: step_result)
+      )
+      @last_plugin_failure = nil
+      return step_result unless failure
+
+      StepResult.new(
+        step: step_result.step,
+        attempts: step_result.attempts,
+        duration: step_result.duration,
+        category: step_result.category,
+        artifact_result: step_result.artifact_result,
+        cache_result: step_result.cache_result,
+        plugin_item_result: step_result.plugin_item_result,
+        plugin_failure: failure
       )
     end
 
@@ -326,6 +440,51 @@ module MiniCi
       end
 
       name
+    end
+
+    def invoke_plugin_callback(event, context)
+      @plugin_runner.invoke(event, context)
+    end
+
+    def pipeline_context(result: nil)
+      Plugin::Context.new(
+        pipeline: @name,
+        result: result,
+        workspace: Dir.pwd,
+        run_id: @run_id,
+        metadata: @plugin_metadata,
+        output: reporter_output,
+        matrix_values: @matrix_values
+      )
+    end
+
+    def item_context(step, category:, item_result: nil)
+      Plugin::Context.new(
+        item: step,
+        item_result: item_result,
+        phase: category,
+        workspace: Dir.pwd,
+        run_id: @run_id,
+        metadata: @plugin_metadata,
+        output: reporter_output,
+        matrix_values: @matrix_values,
+        configured_environment: @env.merge(@matrix_values).merge(step.env)
+      )
+    end
+
+    def plugin_failure_result(failure, category:)
+      StepResult.new(
+        step: Step.new(name: "Plugin #{failure.plugin_name} #{failure.event}", command: "plugin-callback"),
+        success: false,
+        exit_status: nil,
+        duration: 0,
+        category: category,
+        plugin_failure: failure
+      )
+    end
+
+    def reporter_output
+      @reporter.output if @reporter.respond_to?(:output)
     end
 
     def validate_steps(steps, label = "Pipeline steps")

@@ -10,6 +10,7 @@ require_relative "condition_parser"
 require_relative "concurrency_config"
 require_relative "matrix_definition"
 require_relative "matrix_expander"
+require_relative "plugin"
 
 module MiniCi
   class ConfigLoader
@@ -20,8 +21,9 @@ module MiniCi
 
     Configuration = Struct.new(:name, :before_all, :steps, :after_all, :env, :matrix, :concurrency, :name_explicit, keyword_init: true)
 
-    def initialize(path: DEFAULT_CONFIG_FILE)
+    def initialize(path: DEFAULT_CONFIG_FILE, plugin_registry: Plugin.registry)
       @path = path
+      @plugin_registry = plugin_registry
     end
 
     def load
@@ -90,7 +92,7 @@ module MiniCi
       steps = build_steps(data.fetch("steps", nil))
       after_all = build_hooks(data.fetch("after_all", nil), "after_all")
 
-      Configuration.new(
+      configuration = Configuration.new(
         name: pipeline_name,
         before_all: before_all,
         steps: steps,
@@ -100,6 +102,8 @@ module MiniCi
         concurrency: concurrency,
         name_explicit: name_explicit
       )
+      run_plugin_validators(configuration)
+      configuration
     end
 
     def extract_pipeline_name(data)
@@ -154,12 +158,20 @@ module MiniCi
         raise ConfigurationError, "Invalid pipeline configuration: #{label} is missing \"name\""
       end
 
-      unless step_data.key?("run")
+      has_run = step_data.key?("run")
+      has_uses = step_data.key?("uses")
+      if has_run && has_uses
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} cannot define both run and uses"
+      end
+
+      unless has_run || has_uses
         raise ConfigurationError, "Invalid pipeline configuration: #{label} is missing \"run\""
       end
 
       name = step_data["name"]
-      command = step_data["run"]
+      command = step_data["run"] if has_run
+      uses = build_uses(step_data["uses"], label) if has_uses
+      with = build_with(step_data.fetch("with", {}), label) if has_uses
       env = build_env(step_data.fetch("env", nil), "#{label} env")
       timeout = build_timeout(step_data["timeout"], label) if step_data.key?("timeout")
       retries = build_retries(step_data["retries"], label) if step_data.key?("retries")
@@ -168,14 +180,22 @@ module MiniCi
       condition = build_condition(step_data["if"], label) if step_data.key?("if")
       artifacts = build_artifacts(step_data["artifacts"], label) if step_data.key?("artifacts")
       cache = build_cache(step_data["cache"], label) if step_data.key?("cache")
+      if has_uses && step_data.key?("timeout")
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} plugin items do not support timeout"
+      end
+      if has_uses && (retries || 0).positive?
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} plugin items do not support retries"
+      end
 
       unless name.is_a?(String) && !name.strip.empty?
         raise ConfigurationError, "Invalid pipeline configuration: #{label} has a blank name"
       end
 
-      unless command.is_a?(String) && !command.strip.empty?
+      if has_run && !(command.is_a?(String) && !command.strip.empty?)
         raise ConfigurationError, "Invalid pipeline configuration: #{label} has a blank run command"
       end
+
+      validate_plugin_item(uses, with, label) if uses
 
       Step.new(
         name: name,
@@ -188,8 +208,53 @@ module MiniCi
         condition: condition,
         when_policy_explicit: when_policy_explicit,
         artifacts: artifacts,
-        cache: cache
+        cache: cache,
+        uses: uses,
+        with: with || {}
       )
+    end
+
+    def build_uses(value, label)
+      unless value.is_a?(String) && !value.strip.empty?
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} uses must be a non-empty string"
+      end
+
+      unless @plugin_registry.item_type(value)
+        raise ConfigurationError, %(Invalid pipeline configuration: #{label} references unknown plugin item type "#{value}")
+      end
+
+      value
+    end
+
+    def build_with(value, label)
+      unless value.is_a?(Hash)
+        raise ConfigurationError, "Invalid pipeline configuration: #{label} with must be a mapping"
+      end
+
+      value.dup.freeze
+    end
+
+    def validate_plugin_item(uses, with, label)
+      item_type = @plugin_registry.item_type(uses)
+      errors = item_type.validate(with)
+      return if errors.empty?
+
+      raise ConfigurationError, "Plugin validation failed [#{item_type.plugin.name}:#{uses} #{label}]: #{errors.first}"
+    rescue StandardError => e
+      raise ConfigurationError, "Plugin validation failed [#{item_type.plugin.name}:#{uses} #{label}]: #{e.message}"
+    end
+
+    def run_plugin_validators(configuration)
+      @plugin_registry.validators.each do |plugin, validator|
+        messages = validator.call(configuration)
+        Array(messages).compact.each do |message|
+          raise ConfigurationError, "Plugin validation failed [#{plugin.name}]: #{message}"
+        end
+      rescue ConfigurationError
+        raise
+      rescue StandardError => e
+        raise ConfigurationError, "Plugin validation failed [#{plugin.name}]: #{e.message}"
+      end
     end
 
     def build_cache(cache_data, label)

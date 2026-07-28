@@ -10,12 +10,20 @@ module MiniCi
       @workspace = Pathname.new(workspace).realpath
     end
 
-    def resolve(paths)
+    INTERPOLATION = /\$\{\{\s*(.*?)\s*\}\}/
+
+    def resolve(paths, env: {})
       sources = []
       warnings = []
       errors = []
 
       paths.each do |path|
+        begin
+          path = resolve_path_template(path, env)
+        rescue StandardError => e
+          errors << e.message
+          next
+        end
         matches = matches_for(path)
         warnings << "artifact path #{path.inspect} did not match any files" if matches.empty?
 
@@ -35,6 +43,20 @@ module MiniCi
     end
 
     private
+
+    def resolve_path_template(path, env)
+      path.gsub(INTERPOLATION) do
+        expression = Regexp.last_match(1).strip
+        match = expression.match(/\Aenv\.([A-Za-z_][A-Za-z0-9_]*)\z/)
+        raise "artifact path has unsupported expression #{expression.inspect}" unless match
+
+        value = env.fetch(match[1], "")
+        if value.include?("\0") || value.split(/[\\\/]+/).include?("..") || Pathname.new(value).absolute?
+          raise "artifact path environment value #{match[1].inspect} must stay inside the workspace"
+        end
+        value
+      end
+    end
 
     def matches_for(path)
       full_pattern = File.join(@workspace.to_s, path)

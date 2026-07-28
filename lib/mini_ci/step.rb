@@ -4,11 +4,11 @@ module MiniCi
   class Step
     VALID_WHEN_POLICIES = [:success, :failure, :always, :never].freeze
 
-    attr_reader :name, :command, :env, :timeout, :retries, :retry_delay, :when_policy, :condition, :artifacts, :cache
+    attr_reader :name, :command, :env, :timeout, :retries, :retry_delay, :when_policy, :condition, :artifacts, :cache, :uses, :with
 
-    def initialize(name:, command:, env: {}, timeout: nil, retries: 0, retry_delay: 0, when_policy: :success, condition: nil, when_policy_explicit: false, artifacts: nil, cache: nil)
+    def initialize(name:, command: nil, env: {}, timeout: nil, retries: 0, retry_delay: 0, when_policy: :success, condition: nil, when_policy_explicit: false, artifacts: nil, cache: nil, uses: nil, with: {})
       @name = validate_text(name, "name")
-      @command = validate_text(command, "command")
+      @command = command.nil? ? nil : validate_text(command, "command")
       @env = env.dup.freeze
       @timeout = validate_timeout(timeout)
       @retries = validate_retries(retries)
@@ -17,7 +17,10 @@ module MiniCi
       @condition = condition
       @artifacts = artifacts
       @cache = cache
+      @uses = uses
+      @with = with.dup.freeze
       @when_policy_explicit = when_policy_explicit
+      validate_execution_mode
       freeze
     end
 
@@ -47,6 +50,10 @@ module MiniCi
 
     def when_policy_explicit?
       @when_policy_explicit
+    end
+
+    def plugin_item?
+      !uses.nil?
     end
 
     private
@@ -90,6 +97,14 @@ module MiniCi
       return policy if VALID_WHEN_POLICIES.include?(policy)
 
       raise ArgumentError, "Step when_policy must be one of success, failure, always, never"
+    end
+
+    def validate_execution_mode
+      if plugin_item?
+        raise ArgumentError, "Step uses must be a non-empty string" unless uses.is_a?(String) && !uses.strip.empty?
+      elsif command.nil?
+        raise ArgumentError, "Step command must be a non-empty string"
+      end
     end
   end
 end

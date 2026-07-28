@@ -1,0 +1,14 @@
+name: Plugin Basic Example
+
+steps:
+  - name: Start with a normal command
+    run: echo "normal command ran"
+
+  - name: Print plugin message
+    uses: message
+    with:
+      text: Hello from a plugin
+
+  - name: Finish
+    run: echo "plugin pipeline finished"
+

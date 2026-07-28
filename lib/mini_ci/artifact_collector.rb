@@ -13,8 +13,8 @@ module MiniCi
       @resolver = ArtifactPathResolver.new(workspace: workspace)
     end
 
-    def collect(definition, destination:)
-      resolved = @resolver.resolve(definition.paths)
+    def collect(definition, destination:, env: {})
+      resolved = @resolver.resolve(definition.paths, env: env)
       copied_files = []
       copied_directories = []
       copied_sources = Set.new

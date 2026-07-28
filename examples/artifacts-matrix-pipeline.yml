@@ -13,4 +13,4 @@ steps:
     run: bash scripts/generate_matrix_artifacts.sh
     artifacts:
       paths:
-        - matrix-artifacts/
+        - matrix-artifacts/${{ env.MATRIX_JOB }}/

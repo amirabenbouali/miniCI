@@ -4,7 +4,7 @@ Mini CI is a lightweight local CI/CD pipeline runner written primarily in Ruby. 
 
 ## Current Milestone
 
-Mini CI v0.13 supports:
+Mini CI v0.14 supports:
 
 - loading pipeline steps from `pipeline.yml`;
 - loading a custom pipeline configuration path;
@@ -26,6 +26,9 @@ Mini CI v0.13 supports:
 - SHA-256 checksum cache key expressions;
 - environment and matrix cache key expressions;
 - cache listing and clearing commands;
+- trusted local Ruby plugins loaded from `.mini-ci/plugins/` or CLI paths;
+- plugin metadata, API version checks, lifecycle callbacks, configuration validators, and custom pipeline item types;
+- plugin result metadata in artifact manifests;
 - pipeline-level and step-level environment variables;
 - step-level environment variables overriding global values;
 - optional per-step command timeouts;
@@ -38,7 +41,7 @@ Mini CI v0.13 supports:
 - continuing to evaluate later configured items after failures;
 - returning a non-zero application exit status when the pipeline fails.
 
-It does not yet support plugins, remote cache servers, remote artifact storage, cloud uploads, compression, cache eviction policies, secrets management, `.env` files, Docker, deployment logic, a web frontend, a database, or external APIs.
+It does not yet support a local dashboard, remote plugin marketplaces, automatic plugin installation, remote cache servers, remote artifact storage, cloud uploads, compression, cache eviction policies, secrets management, `.env` files, Docker, deployment logic, a web frontend, a database, or external APIs.
 
 ## Requirements
 
@@ -74,6 +77,7 @@ Mini CI uses subcommands:
 ```bash
 bundle exec bin/mini-ci help
 bundle exec bin/mini-ci cache list
+bundle exec bin/mini-ci plugins validate
 bundle exec bin/mini-ci version
 bundle exec bin/mini-ci validate
 bundle exec bin/mini-ci list
@@ -95,6 +99,8 @@ bundle exec bin/mini-ci
 | `list [FILE]` | Display configured pipeline steps without running commands | `bundle exec bin/mini-ci list` |
 | `cache list [--cache-dir DIR]` | Display saved cache entries | `bundle exec bin/mini-ci cache list` |
 | `cache clear --yes [--cache-dir DIR]` | Clear saved cache entries | `bundle exec bin/mini-ci cache clear --yes` |
+| `plugins list [--plugin FILE] [--plugin-dir DIR]` | Display loaded local plugins | `bundle exec bin/mini-ci plugins list --plugin examples/plugins/message_item.rb` |
+| `plugins validate [--plugin FILE] [--plugin-dir DIR]` | Load plugins and validate metadata/registrations | `bundle exec bin/mini-ci plugins validate --plugin examples/plugins/message_item.rb` |
 | `version` | Display the installed version | `bundle exec bin/mini-ci version` |
 | `help` | Display usage information | `bundle exec bin/mini-ci help` |
 
@@ -508,6 +514,214 @@ bundle exec bin/mini-ci run examples/cache-fallback-pipeline.yml
 bundle exec bin/mini-ci run examples/cache-matrix-pipeline.yml
 bundle exec bin/mini-ci run examples/cache-failure-pipeline.yml
 ```
+
+### Plugins
+
+Mini CI can load trusted local Ruby plugins. Plugins can register lifecycle callbacks, custom configuration validators, and custom pipeline item types.
+
+Security warning:
+
+- Plugins are fully trusted Ruby code.
+- Plugins run inside the Mini CI process and are not sandboxed.
+- Plugins can access files, processes, environment variables, and network resources.
+- Only load plugins you trust.
+- Do not make plugin directories writable by untrusted users or tools.
+- Mini CI does not download plugins, install plugins from remote URLs, or provide isolation.
+
+Plugins are loaded from the default directory when it exists:
+
+```text
+.mini-ci/plugins/**/*.rb
+```
+
+Directory plugin files load in deterministic alphabetical order. Explicit CLI directories load after the default directory, and explicit CLI files load after directories:
+
+```text
+default .mini-ci/plugins
+--plugin-dir values in CLI order
+--plugin values in CLI order
+```
+
+Load plugins explicitly:
+
+```bash
+bundle exec bin/mini-ci plugins validate \
+  --plugin examples/plugins/run_logger.rb \
+  --plugin examples/plugins/message_item.rb
+
+bundle exec bin/mini-ci plugins list \
+  --plugin examples/plugins/run_logger.rb \
+  --plugin examples/plugins/message_item.rb
+```
+
+Validate and run a pipeline that uses plugin items:
+
+```bash
+bundle exec bin/mini-ci validate examples/plugin-basic-pipeline.yml \
+  --plugin examples/plugins/run_logger.rb \
+  --plugin examples/plugins/message_item.rb
+
+bundle exec bin/mini-ci run examples/plugin-basic-pipeline.yml \
+  --plugin examples/plugins/run_logger.rb \
+  --plugin examples/plugins/message_item.rb
+
+echo $?
+```
+
+The primary registration API is declarative:
+
+```ruby
+MiniCi::Plugin.register(
+  name: "message-plugin",
+  version: "1.0.0",
+  description: "Adds a message pipeline item"
+) do |plugin|
+  plugin.register_item_type("message") do |input, context|
+    context.output.puts input.fetch("text")
+
+    MiniCi::Plugin::ItemResult.new(
+      success: true,
+      plugin_name: "message-plugin",
+      item_type: "message",
+      metadata: {
+        "message_length" => input.fetch("text").length
+      }
+    )
+  end
+end
+```
+
+Plugin metadata requires:
+
+- `name`, matching `[a-z0-9][a-z0-9_-]*`;
+- `version`, a non-empty string.
+
+Optional metadata:
+
+- `description`;
+- `author`;
+- `homepage`;
+- `api_version`.
+
+`MiniCi::PLUGIN_API_VERSION` is currently `1`. This is separate from the Mini CI package version and from each plugin's own version. Plugins may declare `api_version: "1"`; incompatible versions are rejected before pipeline execution.
+
+Supported lifecycle callbacks include:
+
+```ruby
+plugin.before_run { |context| }
+plugin.after_run { |context| }
+plugin.before_pipeline { |context| }
+plugin.after_pipeline { |context| }
+plugin.before_item { |context| }
+plugin.after_item { |context| }
+plugin.after_report { |context| }
+```
+
+Callbacks execute in deterministic order:
+
+1. plugin load order;
+2. callback declaration order within each plugin.
+
+`after_*` callbacks use the same order. Callbacks may run concurrently during parallel matrix jobs. Plugin authors should write callbacks to be thread-safe, or mark a callback as serial for that plugin:
+
+```ruby
+plugin.after_item(serial: true) do |context|
+  # protected by this plugin callback's mutex
+end
+```
+
+Mini CI uses plugin-specific callback mutexes, not one global plugin lock.
+
+Callback contexts expose only event-relevant values, such as:
+
+- `context.configuration`;
+- `context.result`;
+- `context.item`;
+- `context.item_result`;
+- `context.phase`;
+- `context.matrix_values`;
+- `context.workspace`;
+- `context.run_id`;
+- `context.metadata`;
+- `context.output`.
+
+Mini CI does not expose the full parent process environment to plugin contexts. Use:
+
+```ruby
+context.environment_variable("MATRIX_RUBY")
+```
+
+That reads configured pipeline, matrix, and step/hook variables only.
+
+Plugins can add structured run metadata:
+
+```ruby
+context.metadata["quality_gate"] = {
+  "status" => "passed"
+}
+```
+
+Plugin metadata must be string-keyed, JSON-compatible, non-recursive, and no larger than 1 MB. Mini CI does not automatically include secrets.
+
+Plugins can register custom validators:
+
+```ruby
+plugin.validate_configuration do |configuration|
+  "pipeline name is required" unless configuration.name_explicit
+end
+```
+
+Plugin validation runs after core YAML parsing and validation. Plugin errors prevent execution and cannot suppress core errors.
+
+Plugins can register custom item types used through `uses` and `with`:
+
+```yaml
+steps:
+  - name: Print plugin message
+    uses: message
+    with:
+      text: Hello from a plugin
+```
+
+Core rules:
+
+- `uses` must be a non-empty string;
+- `with` must be a mapping when supplied;
+- an item cannot define both `run` and `uses`;
+- the referenced item type must be registered by a loaded plugin;
+- in-process plugin items support conditions, artifacts, caching, matrix execution, and normal result reporting;
+- in-process plugin items do not support command timeouts or retries.
+
+Plugin callback failures fail the Mini CI run. If a command already failed, that command remains the primary failure and the plugin failure is reported additionally. A `before_item` plugin failure prevents that item from executing and marks the run failed while still allowing guaranteed cleanup to be evaluated.
+
+Example plugins:
+
+```text
+examples/plugins/run_logger.rb
+examples/plugins/message_item.rb
+examples/plugins/policy_validator.rb
+examples/plugins/callback_failure.rb
+```
+
+Example plugin pipelines:
+
+```bash
+bundle exec bin/mini-ci run examples/plugin-basic-pipeline.yml \
+  --plugin examples/plugins/run_logger.rb \
+  --plugin examples/plugins/message_item.rb
+
+bundle exec bin/mini-ci run examples/plugin-matrix-pipeline.yml \
+  --plugin examples/plugins/message_item.rb \
+  --concurrency 2
+
+bundle exec bin/mini-ci validate examples/plugin-validation-failure-pipeline.yml \
+  --plugin examples/plugins/policy_validator.rb
+
+bundle exec bin/mini-ci run examples/plugin-callback-failure-pipeline.yml \
+  --plugin examples/plugins/callback_failure.rb
+```
+
+Artifact manifests include loaded plugin metadata, plugin failures, plugin run metadata, and per-item plugin metadata when an artifact run directory is active.
 
 ### Custom Configuration Path
 
@@ -1192,7 +1406,7 @@ bundle exec bin/mini-ci version
 Example output:
 
 ```text
-Mini CI 0.13.0
+Mini CI 0.14.0
 ```
 
 Show help:
@@ -1253,6 +1467,9 @@ Run `mini-ci help` for usage information.
 - Artifacts are stored locally only.
 - Dependency caches are stored locally only.
 - Cache entries are not compressed and do not have eviction policies yet.
+- Plugins are trusted local Ruby code and are not sandboxed.
+- Plugin files are local only; there is no remote marketplace or automatic installer.
+- In-process plugin item handlers do not support command timeout or retry semantics.
 - Artifact collection happens once per item after final retry, not once per attempt.
 - Matrix runs are fail-late: one failed job does not stop later jobs.
 - Later configured items are evaluated after failure, but only supported `when` and `if` rules are available.
@@ -1262,8 +1479,8 @@ Run `mini-ci help` for usage information.
 - No secrets management or secret masking.
 - No `.env` file support.
 - Timeout process-group termination is currently intended for Unix-like systems.
-- No remote cache servers, remote artifact storage, compression, plugins, Docker, deployment, frontend, or database support.
+- No local dashboard, remote cache servers, remote artifact storage, compression, Docker, deployment, frontend, or database support.
 
 ## Next Milestone
 
-The next planned milestone adds a plugin system.
+The next planned milestone adds a local dashboard.

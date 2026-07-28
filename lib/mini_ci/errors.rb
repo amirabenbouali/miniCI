@@ -10,4 +10,10 @@ module MiniCi
   class UsageError < Error; end
 
   class InternalError < Error; end
+
+  class PluginError < Error; end
+
+  class PluginRegistrationError < PluginError; end
+
+  class PluginLoadError < PluginError; end
 end

@@ -20,6 +20,10 @@ module MiniCi
       !success?
     end
 
+    def status
+      success? ? "passed" : "failed"
+    end
+
     def job_count
       matrix_job_results.length
     end
@@ -70,6 +74,14 @@ module MiniCi
 
     def cache_warning_count
       matrix_job_results.sum { |job| job.pipeline_result.cache_warning_count }
+    end
+
+    def plugin_failures
+      matrix_job_results.flat_map { |job| job.pipeline_result.plugin_failures }.freeze
+    end
+
+    def plugin_failure_count
+      plugin_failures.length
     end
 
     def parallel?

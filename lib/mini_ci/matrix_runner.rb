@@ -9,6 +9,7 @@ require_relative "matrix_expander"
 require_relative "matrix_job_result"
 require_relative "matrix_run_result"
 require_relative "pipeline"
+require_relative "plugin"
 require_relative "reporter"
 
 module MiniCi
@@ -31,6 +32,9 @@ module MiniCi
       artifact_store: nil,
       cache_store: nil,
       cache_enabled: true,
+      plugin_registry: Plugin.registry,
+      plugin_metadata: nil,
+      run_id: nil,
       reporter: Reporter.new,
       clock: -> { Process.clock_gettime(Process::CLOCK_MONOTONIC) },
       sleeper: ->(seconds) { sleep(seconds) },
@@ -50,6 +54,9 @@ module MiniCi
       @artifact_store = artifact_store
       @cache_store = cache_store
       @cache_enabled = cache_enabled
+      @plugin_registry = plugin_registry
+      @plugin_metadata = plugin_metadata
+      @run_id = run_id
       @reporter = reporter
       @clock = clock
       @sleeper = sleeper
@@ -148,6 +155,10 @@ module MiniCi
         artifact_job_directory: artifact_job_directory_for(job),
         cache_store: @cache_store,
         cache_enabled: @cache_enabled,
+        plugin_registry: @plugin_registry,
+        plugin_metadata: @plugin_metadata,
+        run_id: @run_id,
+        matrix_values: job.combination.environment,
         clock: @clock,
         sleeper: @sleeper,
         announce_header: false
