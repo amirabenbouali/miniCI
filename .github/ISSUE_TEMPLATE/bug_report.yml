@@ -1,0 +1,57 @@
+name: Bug report
+description: Report a reproducible Mini CI problem.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: input
+    id: mini_ci_version
+    attributes:
+      label: Mini CI version
+      placeholder: "1.0.0"
+    validations:
+      required: true
+  - type: input
+    id: ruby_version
+    attributes:
+      label: Ruby version
+      placeholder: "ruby --version"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "macOS, Ubuntu, etc."
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command used
+      render: bash
+    validations:
+      required: true
+  - type: textarea
+    id: configuration
+    attributes:
+      label: Pipeline configuration
+      description: Remove secrets before posting.
+      render: yaml
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: debug
+    attributes:
+      label: Debug output
+      description: Run with `--debug` if useful. Remove secrets before posting.
+      render: text

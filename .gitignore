@@ -1,11 +1,28 @@
+# Bundler and installed gems
 /.bundle/
+/vendor/bundle/
+
+# Test and coverage output
 /coverage/
+
+# Built packages
 /pkg/
+*.gem
+
+# Mini CI runtime state
+/.mini-ci/
+/tmp/
 /logs/
 /matrix-artifacts/
 /reports/
-/tmp/
-/.mini-ci/
-/vendor/bundle/
+*.log
+
+# OS and editor files
 .DS_Store
-*.gem
+.idea/
+.vscode/
+*.swp
+*.swo
+*.tmp
+*.bak
+*.orig

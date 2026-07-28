@@ -21,6 +21,7 @@ Gem::Specification.new do |spec|
 
   spec.files = Dir[
     "bin/mini-ci",
+    "examples/README.md",
     "examples/**/*.yml",
     "lib/**/*.rb",
     "public/**/*",
@@ -32,7 +33,8 @@ Gem::Specification.new do |spec|
     "SECURITY.md",
     "CODE_OF_CONDUCT.md",
     "CONTRIBUTING.md",
-    "docs/**/*.md"
+    "docs/**/*.md",
+    "docs/assets/*"
   ].select { |path| File.file?(path) }
   spec.bindir = "bin"
   spec.executables = ["mini-ci"]

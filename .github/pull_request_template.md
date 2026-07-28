@@ -1,9 +1,20 @@
 ## Summary
 
+## Changes
+
 ## Testing
 
-## Compatibility
+<!-- Example: bundle exec rspec -->
 
 ## Documentation
 
-## Security Impact
+## Compatibility
+
+## Security impact
+
+## Checklist
+
+- [ ] Tests pass.
+- [ ] Documentation is updated.
+- [ ] Public CLI/YAML/plugin compatibility is considered.
+- [ ] Security impact is noted.

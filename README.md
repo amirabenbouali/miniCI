@@ -1,8 +1,24 @@
 # Mini CI
 
-Mini CI is a lightweight local pipeline runner for learning, testing and automating repeatable development workflows.
+[![CI](https://github.com/amirabenbouali/miniCI/actions/workflows/ci.yml/badge.svg)](https://github.com/amirabenbouali/miniCI/actions/workflows/ci.yml)
+![Ruby](https://img.shields.io/badge/Ruby-3.1%2B-red)
+![Version](https://img.shields.io/badge/release-1.0.0-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
 
-It is built in Ruby, runs shell commands from YAML configuration files, and keeps the execution model intentionally local and understandable. It is not a replacement for hosted CI systems; it is a small CI-style tool you can run on your own machine.
+<p align="center">
+  <img src="docs/assets/mini-ci-logo.svg" alt="Mini CI logo showing a terminal prompt connected to pipeline nodes and a check mark" width="720">
+</p>
+
+Mini CI is a lightweight local CI-style pipeline runner written in Ruby.
+
+Mini CI helps developers define, validate and run repeatable local pipelines with YAML, matrix builds, retries, timeouts, artifacts, caching and plugins. It is not a replacement for hosted CI systems; it is a focused developer tool for local automation.
+
+## Why Mini CI?
+
+- Test CI-style workflow ideas without a remote service.
+- Keep local automation readable with a small YAML format.
+- Demonstrate production-minded Ruby design: validation, process handling, caching, artifacts, plugins, docs, packaging and CI.
+- Run polished examples that are fast enough for demos and screen recordings.
 
 ## Features
 
@@ -38,6 +54,8 @@ Run the showcase pipeline:
 ```bash
 bundle exec bin/mini-ci run examples/showcase-pipeline.yml --concurrency 2
 ```
+
+The showcase runs two matrix jobs, prepares a workspace, executes checks with retry metadata, collects artifacts, and runs cleanup hooks.
 
 After installing the gem locally:
 
@@ -222,6 +240,16 @@ Plugins are arbitrary Ruby code and are not sandboxed. Only load plugins you tru
 
 Plugin API version `1` is part of the v1.0 compatibility surface. Internal Ruby class constructors are not.
 
+## Examples
+
+The flagship demo is:
+
+```bash
+bundle exec bin/mini-ci run examples/showcase-pipeline.yml --concurrency 2
+```
+
+See [examples/README.md](examples/README.md) for every committed example, what it demonstrates, required plugin flags, and expected exit code.
+
 ## Dashboard
 
 Start the local dashboard:
@@ -261,6 +289,25 @@ See [SECURITY.md](SECURITY.md). Mini CI runs shell commands and trusted local pl
 ## Release Readiness
 
 Release notes live in [docs/releases/v1.0.0.md](docs/releases/v1.0.0.md). The release checklist lives in [docs/release-checklist.md](docs/release-checklist.md).
+
+Suggested GitHub repository description:
+
+```text
+Lightweight local CI pipeline runner written in Ruby with matrix builds, caching, artifacts and plugins.
+```
+
+Suggested topics:
+
+```text
+ruby, ci, continuous-integration, developer-tools, automation, yaml, pipeline, cli, matrix-builds, testing, build-system
+```
+
+## Roadmap
+
+- Keep the v1.0 CLI and YAML format stable.
+- Harden process interruption and dashboard-managed cancellation.
+- Improve release packaging and GitHub Release assets.
+- Explore future workflow features only when they fit Mini CI's local-first scope.
 
 ## Contributing
 

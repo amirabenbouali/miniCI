@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="240" viewBox="0 0 960 240" role="img" aria-labelledby="title desc">
+  <title id="title">Mini CI logo</title>
+  <desc id="desc">A terminal prompt connected to three pipeline nodes ending in a check mark.</desc>
+  <rect width="960" height="240" rx="28" fill="#0f172a"/>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M88 122l32-32-32-32" stroke="#38bdf8" stroke-width="14"/>
+    <path d="M142 154h74" stroke="#e2e8f0" stroke-width="14"/>
+    <circle cx="330" cy="120" r="30" fill="#164e63" stroke="#67e8f9" stroke-width="10"/>
+    <circle cx="452" cy="120" r="30" fill="#14532d" stroke="#86efac" stroke-width="10"/>
+    <circle cx="574" cy="120" r="30" fill="#4c1d95" stroke="#c4b5fd" stroke-width="10"/>
+    <path d="M360 120h62M482 120h62" stroke="#94a3b8" stroke-width="10"/>
+    <path d="M690 124l34 34 72-82" stroke="#86efac" stroke-width="14"/>
+  </g>
+  <text x="330" y="178" fill="#e2e8f0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="30" font-weight="700">Mini CI</text>
+</svg>
