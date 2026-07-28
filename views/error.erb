@@ -1,5 +1,12 @@
-<section class="section-heading">
-  <h1>Mini CI error</h1>
-</section>
+<% @page_title = "Error" %>
 
-<p class="error-message"><%= h(@message) %></p>
+<section class="panel error-panel" role="alert">
+  <div class="section-heading">
+    <div>
+      <p class="eyebrow">Request failed</p>
+      <h2>Mini CI error</h2>
+    </div>
+  </div>
+  <p class="error-message"><%= h(@message) %></p>
+  <a class="button secondary" href="/runs">Back to runs</a>
+</section>

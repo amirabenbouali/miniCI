@@ -1,30 +1,72 @@
-<section class="hero">
-  <div>
-    <p class="eyebrow">Local dashboard</p>
-    <h1>Pipeline runs on this machine</h1>
-  </div>
-  <a class="button" href="/run/new">Start run</a>
-</section>
+<% @page_title = "Overview" %>
 
-<section class="stats">
-  <% @summary.each do |label, value| %>
-    <div class="stat">
-      <span><%= h(label) %></span>
-      <strong><%= h(value) %></strong>
-    </div>
-  <% end %>
+<section class="metric-grid" aria-label="Run summary">
+  <article class="metric-card">
+    <span>Total runs</span>
+    <strong><%= h(@summary[:total]) %></strong>
+  </article>
+  <article class="metric-card success">
+    <span>Successful runs</span>
+    <strong><%= h(@summary[:passed]) %></strong>
+  </article>
+  <article class="metric-card danger">
+    <span>Failed runs</span>
+    <strong><%= h(@summary[:failed]) %></strong>
+  </article>
+  <article class="metric-card running">
+    <span>Running runs</span>
+    <strong><%= h(@summary[:running]) %></strong>
+  </article>
+  <article class="metric-card">
+    <span>Success rate</span>
+    <strong><%= h(@summary[:success_rate]) %></strong>
+  </article>
+  <article class="metric-card">
+    <span>Average duration</span>
+    <strong><%= h(presenter.format_duration(@summary[:average_duration])) %></strong>
+  </article>
   <% if @corrupt_count.positive? %>
-    <div class="stat warning">
+    <article class="metric-card warning">
       <span>Corrupt records</span>
       <strong><%= h(@corrupt_count) %></strong>
-    </div>
+    </article>
   <% end %>
 </section>
 
-<section>
+<section class="panel">
   <div class="section-heading">
-    <h2>Recent runs</h2>
-    <a href="/runs">View all</a>
+    <div>
+      <p class="eyebrow">Latest activity</p>
+      <h2>Recent runs</h2>
+    </div>
+    <a class="button secondary" href="/runs">View all</a>
   </div>
   <%= erb :_run_table, locals: { runs: @runs } %>
+</section>
+
+<section class="panel system-panel">
+  <div class="section-heading">
+    <div>
+      <p class="eyebrow">Runtime</p>
+      <h2>System information</h2>
+    </div>
+  </div>
+  <dl class="metadata-grid">
+    <div>
+      <dt>Mini CI version</dt>
+      <dd><%= h(MiniCi::VERSION) %></dd>
+    </div>
+    <div>
+      <dt>Ruby version</dt>
+      <dd><%= h(RUBY_VERSION) %></dd>
+    </div>
+    <div>
+      <dt>Run history</dt>
+      <dd><%= h(repository.root.sub(Dir.pwd, ".")) %></dd>
+    </div>
+    <div>
+      <dt>Dashboard scope</dt>
+      <dd>Loopback only</dd>
+    </div>
+  </dl>
 </section>

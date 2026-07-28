@@ -1,28 +1,36 @@
-<section class="section-heading">
-  <h1>Start a pipeline</h1>
-</section>
+<% @page_title = "New run" %>
 
-<form class="run-form" method="post" action="/runs">
-  <input type="hidden" name="csrf_token" value="<%= h(csrf_token) %>">
-  <label>
-    Pipeline file
-    <input name="pipeline_file" value="pipeline.yml" required>
-  </label>
-  <label>
-    Concurrency
-    <input name="concurrency" placeholder="automatic">
-  </label>
-  <label class="checkbox">
-    <input type="checkbox" name="no_cache">
-    Disable cache
-  </label>
-  <label>
-    Plugin files
-    <textarea name="plugin_files" rows="4" placeholder="examples/plugins/run_logger.rb"></textarea>
-  </label>
-  <label>
-    Plugin directories
-    <textarea name="plugin_dirs" rows="4"></textarea>
-  </label>
-  <button type="submit">Run pipeline</button>
-</form>
+<section class="panel launch-panel">
+  <div class="section-heading">
+    <div>
+      <p class="eyebrow">Launch</p>
+      <h2>Start a pipeline</h2>
+    </div>
+  </div>
+
+  <form class="run-form" method="post" action="/runs" data-launch-form>
+    <input type="hidden" name="csrf_token" value="<%= h(csrf_token) %>">
+    <label>
+      Pipeline configuration path
+      <input name="pipeline_file" value="pipeline.yml" required>
+    </label>
+    <label>
+      Concurrency override
+      <input name="concurrency" inputmode="numeric" placeholder="automatic">
+    </label>
+    <label class="checkbox">
+      <input type="checkbox" name="no_cache">
+      <span>Disable cache for this run</span>
+    </label>
+    <label>
+      Plugin files
+      <textarea name="plugin_files" rows="4" placeholder="examples/plugins/run_logger.rb"></textarea>
+    </label>
+    <label>
+      Plugin directories
+      <textarea name="plugin_dirs" rows="4" placeholder="examples/plugins"></textarea>
+    </label>
+    <p class="safety-note">Commands run locally with your current user permissions.</p>
+    <button class="button primary" type="submit" data-submit-label="Run pipeline"><%= dashboard_icon("play") %><span>Run pipeline</span></button>
+  </form>
+</section>

@@ -1,26 +1,39 @@
 <% if runs.empty? %>
-  <p class="empty">No runs recorded yet.</p>
+  <div class="empty-state">
+    <h2>No runs yet</h2>
+    <p>Run a pipeline to see execution history, logs and artifacts here.</p>
+    <a class="button secondary" href="/run/new">Start a run</a>
+  </div>
 <% else %>
-  <table>
-    <thead>
-      <tr>
-        <th>Run</th>
-        <th>Pipeline</th>
-        <th>Status</th>
-        <th>Started</th>
-        <th>Duration</th>
-      </tr>
-    </thead>
-    <tbody>
-      <% runs.each do |run| %>
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead>
         <tr>
-          <td><a href="/runs/<%= h(run["run_id"]) %>"><%= h(run["run_id"]) %></a></td>
-          <td><%= h(run["pipeline_name"] || run["pipeline_file"]) %></td>
-          <td><span class="status <%= h(run["status"]) %>"><%= h(run["status"]) %></span></td>
-          <td><%= h(presenter.format_time(run["started_at"] || run["created_at"])) %></td>
-          <td><%= h(presenter.format_duration(run["duration"])) %></td>
+          <th>Status</th>
+          <th>Pipeline</th>
+          <th>Run ID</th>
+          <th>Started</th>
+          <th>Duration</th>
+          <th>Jobs</th>
+          <th>Trigger</th>
         </tr>
-      <% end %>
-    </tbody>
-  </table>
+      </thead>
+      <tbody>
+        <% runs.each do |run| %>
+          <% started = run["started_at"] || run["created_at"] %>
+          <tr class="clickable-row">
+            <td><%= status_badge(run["status"]) %></td>
+            <td>
+              <a class="table-primary-link" href="/runs/<%= h(run["run_id"]) %>"><%= h(run["pipeline_name"] || run["pipeline_file"] || "Unnamed pipeline") %></a>
+            </td>
+            <td><code><%= h(run["run_id"]) %></code></td>
+            <td title="<%= h(presenter.format_time(started)) %>"><%= h(presenter.relative_time(started)) %></td>
+            <td><%= h(presenter.format_duration(run["duration"])) %></td>
+            <td><%= h(presenter.job_count(run)) %></td>
+            <td><%= h(run["source"] || "cli") %></td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  </div>
 <% end %>

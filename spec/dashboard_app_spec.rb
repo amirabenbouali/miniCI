@@ -52,12 +52,28 @@ RSpec.describe MiniCi::Dashboard::App do
 
     get "/"
     expect(last_response).to be_ok
-    expect(last_response.body).to include("Pipeline runs on this machine")
+    expect(last_response.body).to include("Overview")
+    expect(last_response.body).to include("Local dashboard")
+    expect(last_response.body).to include("Mini CI 1.0.0")
+    expect(last_response.body).to include("Run history")
     expect(last_response.body).to include(record.fetch("run_id"))
 
     get "/runs?status=passed"
     expect(last_response).to be_ok
     expect(last_response.body).to include("Ruby Build")
+    expect(last_response.body).to include("status-passed")
+  end
+
+  it "renders accurate navigation and responsive dashboard classes" do
+    create_finished_run(status: "passed", pipeline_name: "Ruby Build")
+
+    get "/runs"
+
+    expect(last_response).to be_ok
+    expect(last_response.body).to include("primary-nav")
+    expect(last_response.body).to include('href="/runs" aria-current="page"')
+    expect(last_response.body).to include("table-wrap")
+    expect(last_response.body).to include("local-indicator")
   end
 
   it "renders run details and job details" do
@@ -67,10 +83,24 @@ RSpec.describe MiniCi::Dashboard::App do
     expect(last_response).to be_ok
     expect(last_response.body).to include("Ruby Build")
     expect(last_response.body).to include("Build")
+    expect(last_response.body).to include("Execution details")
+    expect(last_response.body).to include("data-confirm=")
 
     get "/runs/#{record.fetch("run_id")}/jobs/1"
     expect(last_response).to be_ok
     expect(last_response.body).to include("Unit tests")
+    expect(last_response.body).to include("timeline")
+    expect(last_response.body).to include("command-snippet")
+  end
+
+  it "renders failure summaries near the run header" do
+    record = create_finished_run(status: "failed", pipeline_name: "Ruby Build")
+
+    get "/runs/#{record.fetch("run_id")}"
+
+    expect(last_response).to be_ok
+    expect(last_response.body).to include("Failure summary")
+    expect(last_response.body).to include("status-failed")
   end
 
   it "serves JSON APIs for runs, events, and output" do
@@ -94,6 +124,21 @@ RSpec.describe MiniCi::Dashboard::App do
     get "/runs/#{record.fetch("run_id")}/output"
     expect(last_response).to be_ok
     expect(last_response.body).to include("hello from logs")
+    expect(last_response.body).to include("data-log-viewer")
+    expect(last_response.body).to include("data-copy-log")
+  end
+
+  it "escapes log output and pipeline names" do
+    record = create_finished_run(status: "passed", pipeline_name: "<script>alert(1)</script>")
+    repository.output_writer(record.fetch("run_id")).puts("<img src=x onerror=alert(1)>")
+
+    get "/runs/#{record.fetch("run_id")}"
+    expect(last_response.body).to include("&lt;script&gt;alert(1)&lt;/script&gt;")
+    expect(last_response.body).not_to include("<script>alert(1)</script>")
+
+    get "/runs/#{record.fetch("run_id")}/output"
+    expect(last_response.body).to include("&lt;img src=x onerror=alert(1)&gt;")
+    expect(last_response.body).not_to include("<img src=x onerror=alert(1)>")
   end
 
   it "serves artifacts while blocking traversal" do
@@ -105,6 +150,8 @@ RSpec.describe MiniCi::Dashboard::App do
     get "/runs/#{record.fetch("run_id")}/artifacts"
     expect(last_response).to be_ok
     expect(last_response.body).to include("report.txt")
+    expect(last_response.body).to include("Relative path")
+    expect(last_response.body).to include("bytes")
 
     get "/runs/#{record.fetch("run_id")}/artifacts/report.txt"
     expect(last_response).to be_ok
@@ -124,6 +171,8 @@ RSpec.describe MiniCi::Dashboard::App do
     File.write(File.join(directory, "pipeline.yml"), "name: Demo\nsteps:\n  - name: One\n    run: echo ok\n")
 
     get "/run/new"
+    expect(last_response.body).to include("Commands run locally with your current user permissions.")
+    expect(last_response.body).to include("data-launch-form")
     token = last_response.body.match(/name="csrf_token" value="([^"]+)"/)[1]
     post "/runs", pipeline_file: File.join(directory, "pipeline.yml"), csrf_token: token
 
@@ -154,6 +203,7 @@ RSpec.describe MiniCi::Dashboard::App do
                 "index" => 1,
                 "phase" => "step",
                 "name" => "Unit tests",
+                "command" => "bundle exec rspec",
                 "status" => status,
                 "duration" => 1.0,
                 "attempts" => [{ "exit_status" => status == "passed" ? 0 : 1 }]
@@ -161,6 +211,7 @@ RSpec.describe MiniCi::Dashboard::App do
             ]
           }
         ],
+        "failures" => status == "failed" ? [{ "message" => "Unit tests failed with exit code 1" }] : [],
         "artifacts" => artifacts ? { "directory" => artifacts, "files" => 1 } : {},
         "cache" => {},
         "plugins" => [],

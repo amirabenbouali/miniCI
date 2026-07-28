@@ -1,64 +1,130 @@
-<section class="section-heading">
-  <div>
-    <p class="eyebrow"><%= h(@run["run_id"]) %></p>
-    <h1><%= h(@run["pipeline_name"] || @run["pipeline_file"]) %></h1>
-  </div>
-  <span class="status <%= h(@run["status"]) %>"><%= h(@run["status"]) %></span>
-</section>
+<% @page_title = @run["pipeline_name"] || @run["pipeline_file"] || "Run detail" %>
+<% failures = Array(@run["failures"]) + Array(@run["plugin_failures"]) %>
+<% running = %w[queued running].include?(@run["status"]) %>
 
-<section class="details">
-  <div><span>Source</span><strong><%= h(@run["source"]) %></strong></div>
-  <div><span>Pipeline file</span><strong><%= h(@run["pipeline_file"]) %></strong></div>
-  <div><span>Started</span><strong><%= h(presenter.format_time(@run["started_at"])) %></strong></div>
-  <div><span>Duration</span><strong><%= h(presenter.format_duration(@run["duration"])) %></strong></div>
-  <div><span>Concurrency</span><strong><%= h(@run["actual_concurrency"] || @run["configured_concurrency"] || "automatic") %></strong></div>
-</section>
-
-<section class="actions">
-  <a class="button secondary" href="/runs/<%= h(@run["run_id"]) %>/output">Output</a>
-  <% if @run.dig("artifacts", "directory") %>
-    <a class="button secondary" href="/runs/<%= h(@run["run_id"]) %>/artifacts">Artifacts</a>
-  <% end %>
-  <% if %w[queued running].include?(@run["status"]) %>
-    <form method="post" action="/runs/<%= h(@run["run_id"]) %>/cancel">
-      <input type="hidden" name="csrf_token" value="<%= h(csrf_token) %>">
-      <button type="submit">Cancel</button>
-    </form>
-  <% end %>
-  <% unless %w[queued running].include?(@run["status"]) %>
-    <form method="post" action="/runs/<%= h(@run["run_id"]) %>/delete">
-      <input type="hidden" name="csrf_token" value="<%= h(csrf_token) %>">
-      <button type="submit">Delete</button>
-    </form>
-  <% end %>
-</section>
-
-<section>
-  <h2>Failures</h2>
-  <% failures = Array(@run["failures"]) + Array(@run["plugin_failures"]) %>
-  <% if failures.empty? %>
-    <p class="empty">No failures recorded.</p>
-  <% else %>
-    <ul class="list">
-      <% failures.each do |failure| %>
-        <li><%= h(failure["summary"] || failure["message"] || failure) %></li>
-      <% end %>
-    </ul>
-  <% end %>
-</section>
-
-<section>
-  <h2>Jobs</h2>
-  <% if Array(@run["jobs"]).empty? %>
-    <p class="empty">No job details were recorded for this run.</p>
-  <% else %>
-    <div class="job-list">
-      <% @run["jobs"].each do |job| %>
-        <a class="job-row" href="/runs/<%= h(@run["run_id"]) %>/jobs/<%= h(job["index"]) %>">
-          <span><%= h(job["name"]) %></span>
-          <span class="status <%= h(job["status"]) %>"><%= h(job["status"]) %></span>
-        </a>
-      <% end %>
+<div data-run-detail data-run-id="<%= h(@run["run_id"]) %>" data-run-status="<%= h(@run["status"]) %>">
+  <section class="run-header panel">
+    <div>
+      <p class="eyebrow"><%= h(@run["run_id"]) %></p>
+      <h2><%= h(@run["pipeline_name"] || @run["pipeline_file"] || "Unnamed pipeline") %></h2>
+      <p class="muted">Pipeline execution record from <%= h(@run["source"] || "cli") %>.</p>
     </div>
+    <div class="run-status">
+      <%= status_badge(@run["status"]) %>
+      <span class="live-region" data-poll-status aria-live="polite"><%= running ? "Live updates enabled" : "Completed" %></span>
+    </div>
+  </section>
+
+  <% unless failures.empty? %>
+    <section class="failure-summary panel" aria-labelledby="failure-summary-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Attention needed</p>
+          <h2 id="failure-summary-title">Failure summary</h2>
+        </div>
+      </div>
+      <ul class="structured-list">
+        <% failures.each do |failure| %>
+          <li><%= h(failure["summary"] || failure["message"] || failure["event"] || failure) %></li>
+        <% end %>
+      </ul>
+    </section>
   <% end %>
-</section>
+
+  <section class="metadata-panel panel">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">Run metadata</p>
+        <h2>Execution details</h2>
+      </div>
+      <div class="action-row">
+        <a class="button secondary" href="/runs/<%= h(@run["run_id"]) %>/output"><%= dashboard_icon("terminal") %><span>Output</span></a>
+        <% if @run.dig("artifacts", "directory") %>
+          <a class="button secondary" href="/runs/<%= h(@run["run_id"]) %>/artifacts"><%= dashboard_icon("artifact") %><span>Artifacts</span></a>
+        <% end %>
+        <% if running %>
+          <form method="post" action="/runs/<%= h(@run["run_id"]) %>/cancel" data-confirm="Cancel this active run? Mini CI will mark it as cancelled and stop dashboard-managed tracking.">
+            <input type="hidden" name="csrf_token" value="<%= h(csrf_token) %>">
+            <button class="button warning" type="submit"><%= dashboard_icon("cancel") %><span>Cancel</span></button>
+          </form>
+        <% else %>
+          <form method="post" action="/runs/<%= h(@run["run_id"]) %>/delete" data-confirm="Delete this run history record, including its stored logs and metadata?">
+            <input type="hidden" name="csrf_token" value="<%= h(csrf_token) %>">
+            <button class="button danger" type="submit"><%= dashboard_icon("trash") %><span>Delete</span></button>
+          </form>
+        <% end %>
+      </div>
+    </div>
+
+    <dl class="metadata-grid">
+      <div><dt>Configuration file</dt><dd><%= h(@run["pipeline_file"]) %></dd></div>
+      <div><dt>Started</dt><dd title="<%= h(presenter.format_time(@run["started_at"])) %>"><%= h(presenter.relative_time(@run["started_at"])) %></dd></div>
+      <div><dt>Finished</dt><dd title="<%= h(presenter.format_time(@run["finished_at"])) %>"><%= h(presenter.format_time(@run["finished_at"])) %></dd></div>
+      <div><dt>Duration</dt><dd><%= h(presenter.format_duration(@run["duration"])) %></dd></div>
+      <div><dt>Concurrency</dt><dd><%= h(@run["actual_concurrency"] || @run["configured_concurrency"] || "automatic") %></dd></div>
+      <div><dt>Jobs</dt><dd><%= h(presenter.job_count(@run)) %></dd></div>
+      <div><dt>Artifacts</dt><dd><%= h(presenter.artifact_count(@run)) %> files</dd></div>
+      <div><dt>Cache</dt><dd><%= h(presenter.cache_label(@run)) %></dd></div>
+      <div><dt>Plugins</dt><dd><%= h(presenter.plugin_count(@run)) %></dd></div>
+    </dl>
+  </section>
+
+  <section class="panel">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow"><%= @run["matrix"] ? "Matrix" : "Pipeline" %></p>
+        <h2>Jobs</h2>
+      </div>
+    </div>
+    <% if Array(@run["jobs"]).empty? %>
+      <div class="empty-state compact">
+        <h2>No job details</h2>
+        <p>This run record does not include job-level execution data.</p>
+      </div>
+    <% else %>
+      <div class="job-list">
+        <% @run["jobs"].each do |job| %>
+          <a class="job-row" href="/runs/<%= h(@run["run_id"]) %>/jobs/<%= h(job["index"]) %>">
+            <span>
+              <strong><%= h(job["name"]) %></strong>
+              <% unless Hash(job["matrix_values"]).empty? %>
+                <small><%= h(job["matrix_values"].map { |key, value| "#{key}=#{value}" }.join(", ")) %></small>
+              <% end %>
+            </span>
+            <span class="job-meta">
+              <span><%= h(Array(job["items"]).length) %> items</span>
+              <span><%= h(presenter.format_duration(job["duration"])) %></span>
+              <%= status_badge(job["status"]) %>
+            </span>
+          </a>
+        <% end %>
+      </div>
+    <% end %>
+  </section>
+
+  <% unless Array(@run["plugin_failures"]).empty? && Array(@run["plugins"]).empty? %>
+    <section class="panel">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Extensions</p>
+          <h2>Plugins</h2>
+        </div>
+      </div>
+      <% if Array(@run["plugins"]).empty? %>
+        <div class="empty-state compact">
+          <h2>No plugins loaded</h2>
+          <p>This run did not record plugin metadata.</p>
+        </div>
+      <% else %>
+        <ul class="structured-list">
+          <% Array(@run["plugins"]).each do |plugin| %>
+            <li>
+              <strong><%= h(plugin["name"]) %></strong>
+              <span><%= h(plugin["version"]) %></span>
+            </li>
+          <% end %>
+        </ul>
+      <% end %>
+    </section>
+  <% end %>
+</div>

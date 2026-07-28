@@ -6,7 +6,7 @@
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 <p align="center">
-  <img src="docs/assets/mini-ci-logo.svg" alt="Mini CI logo showing a terminal prompt connected to pipeline nodes and a check mark" width="720">
+  <img src="docs/assets/mini-ci-readme-screenshot.png" alt="Mini CI project overview showing the logo, tagline and supported capabilities" width="960">
 </p>
 
 Mini CI is a lightweight local CI-style pipeline runner written in Ruby.

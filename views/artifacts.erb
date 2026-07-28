@@ -1,14 +1,46 @@
-<section class="section-heading">
-  <div>
-    <p class="eyebrow"><a href="/runs/<%= h(@run["run_id"]) %>"><%= h(@run["run_id"]) %></a></p>
-    <h1>Artifacts</h1>
-  </div>
-</section>
+<% @page_title = "Artifacts" %>
 
-<p class="path"><%= h(@relative_path.empty? ? "/" : @relative_path) %></p>
-<ul class="list">
-  <% @entries.each do |entry| %>
-    <% relative = [@relative_path, entry].reject(&:empty?).join("/") %>
-    <li><a href="/runs/<%= h(@run["run_id"]) %>/artifacts/<%= h(relative) %>"><%= h(entry) %></a></li>
+<section class="panel">
+  <div class="section-heading">
+    <div>
+      <p class="eyebrow"><a href="/runs/<%= h(@run["run_id"]) %>"><%= h(@run["run_id"]) %></a></p>
+      <h2>Artifacts</h2>
+    </div>
+    <span class="path-pill"><%= h(@relative_path.empty? ? "/" : @relative_path) %></span>
+  </div>
+
+  <% if @entries.empty? %>
+    <div class="empty-state compact">
+      <h2>No artifacts here</h2>
+      <p>This directory exists but does not contain collected files.</p>
+    </div>
+  <% else %>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Relative path</th>
+            <th>Type</th>
+            <th>Size</th>
+            <th>Created</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% @entries.each do |entry| %>
+            <% relative = [@relative_path, entry].reject(&:empty?).join("/") %>
+            <% path = repository.safe_artifact_path(@run, relative) %>
+            <% stat = File.stat(path) %>
+            <tr>
+              <td><a class="table-primary-link" href="/runs/<%= h(@run["run_id"]) %>/artifacts/<%= h(relative) %>"><%= h(entry) %></a></td>
+              <td><code><%= h(relative) %></code></td>
+              <td><%= h(File.directory?(path) ? "Directory" : "File") %></td>
+              <td><%= h(File.directory?(path) ? "-" : "#{stat.size} bytes") %></td>
+              <td title="<%= h(stat.ctime.utc.iso8601) %>"><%= h(presenter.relative_time(stat.ctime.utc.iso8601)) %></td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
   <% end %>
-</ul>
+</section>

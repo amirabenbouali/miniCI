@@ -1,30 +1,58 @@
-<section class="section-heading">
+<% @page_title = @job["name"] || "Job detail" %>
+
+<section class="run-header panel">
   <div>
     <p class="eyebrow"><a href="/runs/<%= h(@run["run_id"]) %>"><%= h(@run["run_id"]) %></a></p>
-    <h1><%= h(@job["name"]) %></h1>
+    <h2><%= h(@job["name"]) %></h2>
+    <% unless Hash(@job["matrix_values"]).empty? %>
+      <p class="muted"><%= h(@job["matrix_values"].map { |key, value| "#{key}=#{value}" }.join(", ")) %></p>
+    <% end %>
   </div>
-  <span class="status <%= h(@job["status"]) %>"><%= h(@job["status"]) %></span>
+  <%= status_badge(@job["status"]) %>
 </section>
 
-<table>
-  <thead>
-    <tr>
-      <th>Item</th>
-      <th>Phase</th>
-      <th>Status</th>
-      <th>Duration</th>
-      <th>Exit</th>
-    </tr>
-  </thead>
-  <tbody>
-    <% Array(@job["items"]).each do |item| %>
-      <tr>
-        <td><%= h(item["name"]) %></td>
-        <td><%= h(item["phase"]) %></td>
-        <td><span class="status <%= h(item["status"]) %>"><%= h(item["status"]) %></span></td>
-        <td><%= h(presenter.format_duration(item["duration"])) %></td>
-        <td><%= h(Array(item["attempts"]).last&.fetch("exit_status", nil) || "-") %></td>
-      </tr>
-    <% end %>
-  </tbody>
-</table>
+<section class="panel">
+  <div class="section-heading">
+    <div>
+      <p class="eyebrow">Timeline</p>
+      <h2>Items</h2>
+    </div>
+  </div>
+
+  <% if Array(@job["items"]).empty? %>
+    <div class="empty-state compact">
+      <h2>No items recorded</h2>
+      <p>This job has no step, hook or plugin item data.</p>
+    </div>
+  <% else %>
+    <ol class="timeline">
+      <% Array(@job["items"]).each do |item| %>
+        <% attempts = Array(item["attempts"]) %>
+        <% final_attempt = attempts.last || {} %>
+        <li class="timeline-item">
+          <span class="timeline-index"><%= h(item["index"]) %></span>
+          <div class="timeline-content">
+            <div class="timeline-heading">
+              <div>
+                <h3><%= h(item["name"]) %></h3>
+                <p class="muted"><%= h(item["phase"]) %><%= " · #{item["skip_reason"]}" if item["skip_reason"] %></p>
+              </div>
+              <%= status_badge(item["status"]) %>
+            </div>
+            <dl class="inline-metadata">
+              <div><dt>Duration</dt><dd><%= h(presenter.format_duration(item["duration"])) %></dd></div>
+              <div><dt>Attempts</dt><dd><%= h(attempts.length) %></dd></div>
+              <div><dt>Exit</dt><dd><%= h(final_attempt.fetch("exit_status", "-") || "-") %></dd></div>
+              <% if final_attempt["timed_out"] %>
+                <div><dt>Timeout</dt><dd><%= h(presenter.format_duration(final_attempt["timeout"])) %></dd></div>
+              <% end %>
+            </dl>
+            <% if item["command"] %>
+              <pre class="command-snippet"><code><%= h(item["command"]) %></code></pre>
+            <% end %>
+          </div>
+        </li>
+      <% end %>
+    </ol>
+  <% end %>
+</section>

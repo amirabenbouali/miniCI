@@ -1,23 +1,30 @@
-<section class="section-heading">
-  <h1>Runs</h1>
-  <a class="button" href="/run/new">Start run</a>
+<% @page_title = "Runs" %>
+
+<section class="panel">
+  <div class="section-heading">
+    <div>
+      <p class="eyebrow">History</p>
+      <h2>Pipeline runs</h2>
+    </div>
+    <span class="live-region" data-poll-status aria-live="polite">Ready</span>
+  </div>
+
+  <form class="filters" method="get" action="/runs">
+    <label>
+      Status
+      <select name="status">
+        <option value="">All statuses</option>
+        <% %w[queued running passed failed cancelled internal_error].each do |status| %>
+          <option value="<%= h(status) %>" <%= "selected" if status == @status %>><%= h(presenter.status_label(status)) %></option>
+        <% end %>
+      </select>
+    </label>
+    <label>
+      Pipeline
+      <input name="pipeline" value="<%= h(@pipeline) %>" placeholder="Filter by pipeline name">
+    </label>
+    <button class="button secondary" type="submit">Filter</button>
+  </form>
+
+  <%= erb :_run_table, locals: { runs: @runs } %>
 </section>
-
-<form class="filters" method="get" action="/runs">
-  <label>
-    Status
-    <select name="status">
-      <option value="">Any</option>
-      <% %w[queued running passed failed cancelled internal_error].each do |status| %>
-        <option value="<%= h(status) %>" <%= "selected" if status == @status %>><%= h(status) %></option>
-      <% end %>
-    </select>
-  </label>
-  <label>
-    Pipeline
-    <input name="pipeline" value="<%= h(@pipeline) %>">
-  </label>
-  <button type="submit">Filter</button>
-</form>
-
-<%= erb :_run_table, locals: { runs: @runs } %>

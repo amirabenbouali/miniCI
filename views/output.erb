@@ -1,8 +1,27 @@
-<section class="section-heading">
-  <div>
-    <p class="eyebrow"><a href="/runs/<%= h(@run["run_id"]) %>"><%= h(@run["run_id"]) %></a></p>
-    <h1>Output log</h1>
+<% @page_title = "Output log" %>
+<% running = %w[queued running].include?(@run["status"]) %>
+
+<section class="panel log-panel">
+  <div class="section-heading">
+    <div>
+      <p class="eyebrow"><a href="/runs/<%= h(@run["run_id"]) %>"><%= h(@run["run_id"]) %></a></p>
+      <h2>Output log</h2>
+    </div>
+    <div class="action-row">
+      <button class="button secondary" type="button" data-copy-log><%= dashboard_icon("copy") %><span>Copy</span></button>
+      <button class="button secondary" type="button" data-toggle-wrap>Wrap lines</button>
+      <span class="live-region" data-log-status aria-live="polite"><%= running ? "Live" : "Complete" %></span>
+    </div>
+  </div>
+
+  <div
+    class="log-viewer"
+    data-log-viewer
+    data-run-id="<%= h(@run["run_id"]) %>"
+    data-live="<%= running ? "true" : "false" %>"
+    data-offset="<%= h(@output.bytesize) %>"
+  >
+    <pre class="log" tabindex="0"><code data-log-content><%= h(@output) %></code></pre>
+    <button class="return-bottom" type="button" data-return-bottom hidden>Return to bottom</button>
   </div>
 </section>
-
-<pre class="log"><%= h(@output) %></pre>

@@ -3,22 +3,60 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <% if defined?(@run) && @run && %w[queued running].include?(@run["status"]) %>
-      <meta http-equiv="refresh" content="3">
-    <% end %>
     <title>Mini CI Dashboard</title>
     <link rel="stylesheet" href="/styles.css">
+    <script src="/dashboard.js" defer></script>
   </head>
   <body>
-    <header class="topbar">
-      <a class="brand" href="/">Mini CI</a>
-      <nav>
-        <a href="/runs">Runs</a>
-        <a href="/run/new">New run</a>
-      </nav>
-    </header>
-    <main class="page">
-      <%= yield %>
-    </main>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Dashboard">
+        <a class="brand" href="/">
+          <span class="brand-mark" aria-hidden="true">CI</span>
+          <span>
+            <strong>Mini CI</strong>
+            <small>Local runner</small>
+          </span>
+        </a>
+
+        <nav class="primary-nav" aria-label="Primary">
+          <%= nav_item("Overview", "/", "home") %>
+          <%= nav_item("Runs", "/runs", "runs") %>
+          <%= nav_item("New run", "/run/new", "play") %>
+        </nav>
+
+        <div class="sidebar-footer">
+          <span class="local-indicator">Local dashboard</span>
+          <span>Mini CI <%= h(MiniCi::VERSION) %></span>
+        </div>
+      </aside>
+
+      <div class="content-shell">
+        <header class="top-toolbar">
+          <div>
+            <p class="eyebrow">Accessible only from this machine</p>
+            <h1><%= h(@page_title || "Mini CI Dashboard") %></h1>
+          </div>
+          <div class="toolbar-actions">
+            <a class="button secondary" href="<%= h(current_path) %>"><%= dashboard_icon("refresh") %><span>Refresh</span></a>
+            <a class="button primary" href="/run/new"><%= dashboard_icon("play") %><span>New run</span></a>
+          </div>
+        </header>
+
+        <main class="page" id="main-content">
+          <%= yield %>
+        </main>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" data-confirm-modal hidden>
+      <section class="modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+        <h2 id="confirm-title">Confirm action</h2>
+        <p data-confirm-message>This action cannot be undone.</p>
+        <div class="modal-actions">
+          <button class="button secondary" type="button" data-confirm-cancel>Keep run</button>
+          <button class="button danger" type="button" data-confirm-accept>Confirm</button>
+        </div>
+      </section>
+    </div>
   </body>
 </html>
