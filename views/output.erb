@@ -1,0 +1,8 @@
+<section class="section-heading">
+  <div>
+    <p class="eyebrow"><a href="/runs/<%= h(@run["run_id"]) %>"><%= h(@run["run_id"]) %></a></p>
+    <h1>Output log</h1>
+  </div>
+</section>
+
+<pre class="log"><%= h(@output) %></pre>

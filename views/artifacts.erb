@@ -1,0 +1,14 @@
+<section class="section-heading">
+  <div>
+    <p class="eyebrow"><a href="/runs/<%= h(@run["run_id"]) %>"><%= h(@run["run_id"]) %></a></p>
+    <h1>Artifacts</h1>
+  </div>
+</section>
+
+<p class="path"><%= h(@relative_path.empty? ? "/" : @relative_path) %></p>
+<ul class="list">
+  <% @entries.each do |entry| %>
+    <% relative = [@relative_path, entry].reject(&:empty?).join("/") %>
+    <li><a href="/runs/<%= h(@run["run_id"]) %>/artifacts/<%= h(relative) %>"><%= h(entry) %></a></li>
+  <% end %>
+</ul>

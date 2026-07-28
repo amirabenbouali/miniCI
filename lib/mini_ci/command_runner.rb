@@ -17,8 +17,9 @@ module MiniCi
     def run(command, env: {}, timeout: nil, attempt_number: 1)
       started_at = @clock.call
       flush_output
-      pid = Process.spawn(env, command, pgroup: true, out: @stdout, err: @stderr)
+      pid, stream_threads = spawn_process(env, command)
       status = wait_for_process(pid, timeout)
+      stream_threads.each(&:join)
       flush_output
       finished_at = @clock.call
 
@@ -33,6 +34,46 @@ module MiniCi
     end
 
     private
+
+    def spawn_process(env, command)
+      if redirectable?(@stdout) && redirectable?(@stderr)
+        return [Process.spawn(env, command, pgroup: true, out: @stdout, err: @stderr), []]
+      end
+
+      stdout_reader, stdout_writer = IO.pipe
+      stderr_reader, stderr_writer =
+        if @stderr.equal?(@stdout)
+          [nil, stdout_writer]
+        else
+          IO.pipe
+        end
+
+      pid = Process.spawn(env, command, pgroup: true, out: stdout_writer, err: stderr_writer)
+      stdout_writer.close
+      stderr_writer.close if stderr_writer && !stderr_writer.closed?
+
+      threads = [copy_stream(stdout_reader, @stdout)]
+      threads << copy_stream(stderr_reader, @stderr) if stderr_reader
+      [pid, threads]
+    end
+
+    def redirectable?(target)
+      target.respond_to?(:fileno) && target.fileno
+    rescue IOError, NotImplementedError
+      false
+    end
+
+    def copy_stream(reader, target)
+      Thread.new do
+        loop do
+          target.write(reader.readpartial(4096))
+        end
+      rescue EOFError
+        reader.close
+      ensure
+        target.flush if target.respond_to?(:flush)
+      end
+    end
 
     def flush_output
       @stdout.flush if @stdout.respond_to?(:flush)

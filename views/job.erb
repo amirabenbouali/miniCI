@@ -1,0 +1,30 @@
+<section class="section-heading">
+  <div>
+    <p class="eyebrow"><a href="/runs/<%= h(@run["run_id"]) %>"><%= h(@run["run_id"]) %></a></p>
+    <h1><%= h(@job["name"]) %></h1>
+  </div>
+  <span class="status <%= h(@job["status"]) %>"><%= h(@job["status"]) %></span>
+</section>
+
+<table>
+  <thead>
+    <tr>
+      <th>Item</th>
+      <th>Phase</th>
+      <th>Status</th>
+      <th>Duration</th>
+      <th>Exit</th>
+    </tr>
+  </thead>
+  <tbody>
+    <% Array(@job["items"]).each do |item| %>
+      <tr>
+        <td><%= h(item["name"]) %></td>
+        <td><%= h(item["phase"]) %></td>
+        <td><span class="status <%= h(item["status"]) %>"><%= h(item["status"]) %></span></td>
+        <td><%= h(presenter.format_duration(item["duration"])) %></td>
+        <td><%= h(Array(item["attempts"]).last&.fetch("exit_status", nil) || "-") %></td>
+      </tr>
+    <% end %>
+  </tbody>
+</table>

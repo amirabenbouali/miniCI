@@ -64,6 +64,14 @@ module MiniCi
       matrix_job_results.sum { |job| job.pipeline_result.cache_hit_count }
     end
 
+    def cache_exact_hit_count
+      matrix_job_results.sum { |job| job.pipeline_result.cache_exact_hit_count }
+    end
+
+    def cache_fallback_hit_count
+      matrix_job_results.sum { |job| job.pipeline_result.cache_fallback_hit_count }
+    end
+
     def cache_miss_count
       matrix_job_results.sum { |job| job.pipeline_result.cache_miss_count }
     end

@@ -1,0 +1,26 @@
+<% if runs.empty? %>
+  <p class="empty">No runs recorded yet.</p>
+<% else %>
+  <table>
+    <thead>
+      <tr>
+        <th>Run</th>
+        <th>Pipeline</th>
+        <th>Status</th>
+        <th>Started</th>
+        <th>Duration</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% runs.each do |run| %>
+        <tr>
+          <td><a href="/runs/<%= h(run["run_id"]) %>"><%= h(run["run_id"]) %></a></td>
+          <td><%= h(run["pipeline_name"] || run["pipeline_file"]) %></td>
+          <td><span class="status <%= h(run["status"]) %>"><%= h(run["status"]) %></span></td>
+          <td><%= h(presenter.format_time(run["started_at"] || run["created_at"])) %></td>
+          <td><%= h(presenter.format_duration(run["duration"])) %></td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+<% end %>

@@ -9,6 +9,8 @@ require_relative "artifact_run_store"
 require_relative "cache_store"
 require_relative "concurrency_config"
 require_relative "config_loader"
+require_relative "dashboard/app"
+require_relative "dashboard/configuration"
 require_relative "errors"
 require_relative "matrix_expander"
 require_relative "matrix_runner"
@@ -16,6 +18,9 @@ require_relative "pipeline"
 require_relative "pipeline_result"
 require_relative "plugin"
 require_relative "reporter"
+require_relative "run_repository"
+require_relative "run_serializer"
+require_relative "run_output_writer"
 require_relative "step"
 require_relative "step_result"
 require_relative "version"
@@ -51,6 +56,8 @@ module MiniCi
         cache_command(remaining_arguments)
       when "plugins"
         plugins_command(remaining_arguments)
+      when "dashboard"
+        dashboard(remaining_arguments)
       when "version"
         version(remaining_arguments)
       else
@@ -76,13 +83,14 @@ module MiniCi
         Mini CI
 
         Usage:
-          mini-ci run [FILE] [--concurrency N] [--artifacts-dir DIR] [--cache-dir DIR] [--no-cache] [--plugin FILE] [--plugin-dir DIR]
+          mini-ci run [FILE] [--concurrency N] [--artifacts-dir DIR] [--cache-dir DIR] [--no-cache] [--no-history] [--plugin FILE] [--plugin-dir DIR]
           mini-ci validate [FILE] [--plugin FILE] [--plugin-dir DIR]
           mini-ci list [FILE] [--plugin FILE] [--plugin-dir DIR]
           mini-ci cache list [--cache-dir DIR]
           mini-ci cache clear --yes [--cache-dir DIR]
           mini-ci plugins list [--plugin FILE] [--plugin-dir DIR]
           mini-ci plugins validate [--plugin FILE] [--plugin-dir DIR]
+          mini-ci dashboard [--host HOST] [--port PORT] [--open] [--max-runs N]
           mini-ci version
           mini-ci help
 
@@ -92,6 +100,7 @@ module MiniCi
           list      Display configured pipeline steps
           cache     Inspect or clear the local dependency cache
           plugins   Inspect or validate local Ruby plugins
+          dashboard Start the local web dashboard
           version   Display the installed version
           help      Display this help message
 
@@ -102,21 +111,27 @@ module MiniCi
     end
 
     def run_pipeline(arguments)
-      config_path, concurrency_override, artifacts_dir, cache_dir, cache_enabled, plugin_files, plugin_dirs = run_options_from(arguments)
+      config_path, concurrency_override, artifacts_dir, cache_dir, cache_enabled, plugin_files, plugin_dirs, history_enabled = run_options_from(arguments)
       registry = load_plugins(plugin_files: plugin_files, plugin_dirs: plugin_dirs)
       registry.freeze!
       config = load_config(config_path, registry: registry)
-      run_id = "run-#{Time.now.utc.strftime("%Y%m%dT%H%M%SZ")}"
+      history = history_for(config_path, history_enabled)
+      run_id = history ? history[:record].fetch("run_id") : "run-#{Time.now.utc.strftime("%Y%m%dT%H%M%SZ")}"
+      run_output = history ? TeeOutput.new(@output, history[:output_writer]) : @output
+      @active_output = run_output
       plugin_metadata = Plugin::MetadataBuilder.new
       before_run_failure = invoke_plugin_callback(registry, :before_run, plugin_context(configuration: config, run_id: run_id, metadata: plugin_metadata))
       if before_run_failure
-        Reporter.new(output: @output).plugin_failure(before_run_failure)
+        Reporter.new(output: run_output).plugin_failure(before_run_failure)
+        history[:repository].fail(run_id, status: "failed", message: before_run_failure.summary) if history
         return PIPELINE_FAILURE
       end
 
+      history[:repository].mark_running(run_id, pipeline_name: config.name, configured_concurrency: concurrency_label(concurrency_override || config.concurrency)) if history
       artifact_store = artifact_store_for(config, artifacts_dir)
       artifact_collector = artifact_store ? ArtifactCollector.new(workspace: Dir.pwd) : nil
       cache_store = cache_enabled ? CacheStore.new(root: cache_dir || CacheStore::DEFAULT_ROOT, workspace: Dir.pwd) : nil
+      command_runner = CommandRunner.new(stdout: run_output, stderr: run_output)
       if config.matrix
         result = MatrixRunner.new(
           name: config.name,
@@ -134,13 +149,14 @@ module MiniCi
           plugin_registry: registry,
           plugin_metadata: plugin_metadata,
           run_id: run_id,
-          reporter: Reporter.new(output: @output)
+          reporter: Reporter.new(output: run_output)
         ).run
         after_run_failure = invoke_plugin_callback(registry, :after_run, plugin_context(result: result, run_id: run_id, metadata: plugin_metadata))
         plugin_failures = result_plugin_failures(result, after_run_failure)
         overall_success = result.success? && plugin_failures.empty?
-        Reporter.new(output: @output).run_summary(result, plugin_failures: plugin_failures)
+        Reporter.new(output: run_output).run_summary(result, plugin_failures: plugin_failures)
         write_manifest(artifact_store, result, config.name, matrix: true, registry: registry, metadata: plugin_metadata, plugin_failures: plugin_failures, overall_success: overall_success)
+        persist_result(history, result, matrix: true, registry: registry, plugin_metadata: plugin_metadata, plugin_failures: plugin_failures)
 
         return overall_success ? SUCCESS : PIPELINE_FAILURE
       end
@@ -157,18 +173,22 @@ module MiniCi
         artifact_job_directory: artifact_job_directory,
         cache_store: cache_store,
         cache_enabled: cache_enabled,
+        command_runner: command_runner,
         plugin_registry: registry,
         plugin_metadata: plugin_metadata,
         run_id: run_id,
-        reporter: Reporter.new(output: @output)
+        reporter: Reporter.new(output: run_output)
       ).run
       after_run_failure = invoke_plugin_callback(registry, :after_run, plugin_context(result: result, run_id: run_id, metadata: plugin_metadata))
       plugin_failures = result_plugin_failures(result, after_run_failure)
       overall_success = result.success? && plugin_failures.empty?
-      Reporter.new(output: @output).run_summary(result, plugin_failures: plugin_failures)
+      Reporter.new(output: run_output).run_summary(result, plugin_failures: plugin_failures)
       write_manifest(artifact_store, result, config.name, matrix: false, registry: registry, metadata: plugin_metadata, plugin_failures: plugin_failures, overall_success: overall_success)
+      persist_result(history, result, matrix: false, registry: registry, plugin_metadata: plugin_metadata, plugin_failures: plugin_failures)
 
       overall_success ? SUCCESS : PIPELINE_FAILURE
+    ensure
+      @active_output = nil
     end
 
     def validate_pipeline(arguments)
@@ -251,6 +271,26 @@ module MiniCi
       SUCCESS
     end
 
+    def dashboard(arguments)
+      configuration = dashboard_options_from(arguments)
+      repository = RunRepository.new(workspace: Dir.pwd)
+      url = "http://#{configuration.host}:#{configuration.port}"
+
+      if configuration.non_loopback?
+        @error_output.puts "Mini CI warning: dashboard is intended for local use and has no authentication."
+      end
+
+      @output.puts "Mini CI dashboard running at #{url}"
+      @output.puts "Press Ctrl+C to stop."
+      open_dashboard(url) if configuration.open_browser
+
+      Dashboard::App.set :repository, repository
+      Dashboard::App.set :presenter, Dashboard::Presenter.new(repository: repository)
+      Dashboard::App.set :launcher, Dashboard::RunLauncher.new(repository: repository, max_runs: configuration.max_runs)
+      Dashboard::App.run!(bind: configuration.host, port: configuration.port, server: "webrick")
+      SUCCESS
+    end
+
     def config_path_from(arguments, command)
       if arguments.length > 1
         raise UsageError, "#{command} accepts at most one file argument"
@@ -267,6 +307,7 @@ module MiniCi
       cache_enabled = true
       plugin_files = []
       plugin_dirs = []
+      history_enabled = true
 
       index = 0
       while index < remaining.length
@@ -292,6 +333,9 @@ module MiniCi
         elsif argument == "--no-cache"
           cache_enabled = false
           remaining.slice!(index, 1)
+        elsif argument == "--no-history"
+          history_enabled = false
+          remaining.slice!(index, 1)
         elsif argument == "--plugin"
           value = remaining[index + 1]
           raise UsageError, "--plugin requires a value" unless value
@@ -309,7 +353,7 @@ module MiniCi
         end
       end
 
-      [config_path_from(remaining, "run"), concurrency, artifacts_dir, cache_dir, cache_enabled, plugin_files, plugin_dirs]
+      [config_path_from(remaining, "run"), concurrency, artifacts_dir, cache_dir, cache_enabled, plugin_files, plugin_dirs, history_enabled]
     end
 
     def config_options_from(arguments, command)
@@ -464,6 +508,57 @@ module MiniCi
       cache_dir
     end
 
+    def dashboard_options_from(arguments)
+      remaining = arguments.dup
+      host = "127.0.0.1"
+      port = 4567
+      max_runs = 200
+      open_browser = false
+      index = 0
+
+      while index < remaining.length
+        argument = remaining[index]
+        case argument
+        when "--host"
+          value = remaining[index + 1]
+          raise UsageError, "--host requires a value" unless value
+
+          host = value
+          remaining.slice!(index, 2)
+        when "--port"
+          value = remaining[index + 1]
+          raise UsageError, "--port requires a value" unless value
+
+          port = value
+          remaining.slice!(index, 2)
+        when "--max-runs"
+          value = remaining[index + 1]
+          raise UsageError, "--max-runs requires a value" unless value
+
+          max_runs = value
+          remaining.slice!(index, 2)
+        when "--open"
+          open_browser = true
+          remaining.slice!(index, 1)
+        else
+          index += 1
+        end
+      end
+
+      reject_extra_arguments!("dashboard", remaining)
+      Dashboard::Configuration.new(host: host, port: port, max_runs: max_runs, open_browser: open_browser)
+    rescue ArgumentError
+      raise UsageError, "dashboard port and max-runs must be integers"
+    end
+
+    def open_dashboard(url)
+      if RUBY_PLATFORM.match?(/darwin/)
+        system("open", url)
+      elsif RUBY_PLATFORM.match?(/linux/)
+        system("xdg-open", url)
+      end
+    end
+
     def parse_concurrency_override(value)
       unless value.match?(/\A[1-9][0-9]*\z/)
         raise UsageError, "concurrency must be a positive integer"
@@ -547,8 +642,40 @@ module MiniCi
         workspace: Dir.pwd,
         run_id: run_id,
         metadata: metadata,
-        output: @output
+        output: @active_output || @output
       )
+    end
+
+    def history_for(config_path, enabled)
+      return nil unless enabled
+
+      repository = RunRepository.new(workspace: Dir.pwd)
+      record = repository.create(pipeline_file: config_path, source: "cli")
+      {
+        repository: repository,
+        record: record,
+        output_writer: repository.output_writer(record.fetch("run_id"))
+      }
+    end
+
+    def persist_result(history, result, matrix:, registry:, plugin_metadata:, plugin_failures:)
+      return unless history
+
+      payload = RunSerializer.new.serialize_result(
+        result,
+        matrix: matrix,
+        registry: registry,
+        plugin_metadata: plugin_metadata,
+        plugin_failures: plugin_failures
+      )
+      history[:repository].finish(history[:record].fetch("run_id"), payload)
+      history[:repository].prune(max_runs: 200)
+    end
+
+    def concurrency_label(concurrency)
+      return nil unless concurrency
+
+      concurrency.automatic? ? "automatic" : concurrency.value
     end
 
     def print_plugins(registry)

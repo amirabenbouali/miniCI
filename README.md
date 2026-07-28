@@ -1,10 +1,10 @@
 # Mini CI
 
-Mini CI is a lightweight local CI/CD pipeline runner written primarily in Ruby. It loads pipeline steps and hooks from a YAML configuration file, runs shell commands on your local machine, restores and saves local dependency caches, records durations, and prints a final execution summary.
+Mini CI is a lightweight local CI/CD pipeline runner written primarily in Ruby. It loads pipeline steps and hooks from a YAML configuration file, runs shell commands on your local machine, restores and saves local dependency caches, collects artifacts, records run history, and offers a local web dashboard for inspecting recent runs.
 
 ## Current Milestone
 
-Mini CI v0.14 supports:
+Mini CI v0.15 supports:
 
 - loading pipeline steps from `pipeline.yml`;
 - loading a custom pipeline configuration path;
@@ -29,6 +29,11 @@ Mini CI v0.14 supports:
 - trusted local Ruby plugins loaded from `.mini-ci/plugins/` or CLI paths;
 - plugin metadata, API version checks, lifecycle callbacks, configuration validators, and custom pipeline item types;
 - plugin result metadata in artifact manifests;
+- local run history under `.mini-ci/runs/`;
+- `run.json`, `events.jsonl`, and `output.log` for each recorded run;
+- a Sinatra-based local dashboard for run history, details, output, artifacts, and dashboard-launched runs;
+- JSON endpoints for run records, events, and output tails;
+- optional `--no-history` for one-off CLI runs;
 - pipeline-level and step-level environment variables;
 - step-level environment variables overriding global values;
 - optional per-step command timeouts;
@@ -41,7 +46,7 @@ Mini CI v0.14 supports:
 - continuing to evaluate later configured items after failures;
 - returning a non-zero application exit status when the pipeline fails.
 
-It does not yet support a local dashboard, remote plugin marketplaces, automatic plugin installation, remote cache servers, remote artifact storage, cloud uploads, compression, cache eviction policies, secrets management, `.env` files, Docker, deployment logic, a web frontend, a database, or external APIs.
+It does not yet support remote plugin marketplaces, automatic plugin installation, remote cache servers, remote artifact storage, cloud uploads, compression, cache eviction policies, secrets management, `.env` files, Docker, deployment logic, authentication, a database, or external APIs beyond the local dashboard JSON endpoints.
 
 ## Requirements
 
@@ -78,6 +83,7 @@ Mini CI uses subcommands:
 bundle exec bin/mini-ci help
 bundle exec bin/mini-ci cache list
 bundle exec bin/mini-ci plugins validate
+bundle exec bin/mini-ci dashboard
 bundle exec bin/mini-ci version
 bundle exec bin/mini-ci validate
 bundle exec bin/mini-ci list
@@ -94,17 +100,104 @@ bundle exec bin/mini-ci
 
 | Command | Description | Example |
 | --- | --- | --- |
-| `run [FILE] [--concurrency N] [--artifacts-dir DIR] [--cache-dir DIR] [--no-cache]` | Execute a pipeline | `bundle exec bin/mini-ci run examples/cache-basic-pipeline.yml --cache-dir tmp/cache` |
+| `run [FILE] [--concurrency N] [--artifacts-dir DIR] [--cache-dir DIR] [--no-cache] [--no-history]` | Execute a pipeline | `bundle exec bin/mini-ci run examples/cache-basic-pipeline.yml --cache-dir tmp/cache` |
 | `validate [FILE]` | Validate a pipeline configuration without running commands | `bundle exec bin/mini-ci validate` |
 | `list [FILE]` | Display configured pipeline steps without running commands | `bundle exec bin/mini-ci list` |
 | `cache list [--cache-dir DIR]` | Display saved cache entries | `bundle exec bin/mini-ci cache list` |
 | `cache clear --yes [--cache-dir DIR]` | Clear saved cache entries | `bundle exec bin/mini-ci cache clear --yes` |
 | `plugins list [--plugin FILE] [--plugin-dir DIR]` | Display loaded local plugins | `bundle exec bin/mini-ci plugins list --plugin examples/plugins/message_item.rb` |
 | `plugins validate [--plugin FILE] [--plugin-dir DIR]` | Load plugins and validate metadata/registrations | `bundle exec bin/mini-ci plugins validate --plugin examples/plugins/message_item.rb` |
+| `dashboard [--host HOST] [--port PORT] [--open] [--max-runs N]` | Start the local web dashboard | `bundle exec bin/mini-ci dashboard --port 4567` |
 | `version` | Display the installed version | `bundle exec bin/mini-ci version` |
 | `help` | Display usage information | `bundle exec bin/mini-ci help` |
 
 `FILE` defaults to `pipeline.yml`.
+
+## Run History
+
+CLI `run` commands are recorded by default under:
+
+```text
+.mini-ci/runs/
+  run-YYYYMMDDTHHMMSSZ-abcdef/
+    run.json
+    events.jsonl
+    output.log
+```
+
+`run.json` stores structured run metadata such as status, pipeline name, job and item results, artifact summaries, cache summaries, plugin metadata, and final overall status. `events.jsonl` stores append-only lifecycle events. `output.log` stores terminal output from the run.
+
+Run history intentionally does not record the full process environment or secret values.
+
+Disable history for a one-off run:
+
+```bash
+bundle exec bin/mini-ci run pipeline.yml --no-history
+```
+
+## Local Dashboard
+
+Start the dashboard:
+
+```bash
+bundle exec bin/mini-ci dashboard
+```
+
+By default it binds to:
+
+```text
+http://127.0.0.1:4567
+```
+
+Use a custom host or port:
+
+```bash
+bundle exec bin/mini-ci dashboard --port 5678
+bundle exec bin/mini-ci dashboard --host 127.0.0.1 --port 5678
+```
+
+Open the dashboard in your browser when it starts:
+
+```bash
+bundle exec bin/mini-ci dashboard --open
+```
+
+Limit retained terminal runs when the dashboard launches new runs:
+
+```bash
+bundle exec bin/mini-ci dashboard --max-runs 100
+```
+
+The dashboard supports:
+
+- a recent-run overview;
+- run filtering by status and pipeline name;
+- run detail pages;
+- matrix job detail pages;
+- output log viewing;
+- local artifact browsing;
+- launching a pipeline from a local YAML file;
+- cancel and delete actions through POST requests with CSRF tokens;
+- JSON endpoints for runs, events, and output tails.
+
+Useful local endpoints:
+
+```text
+GET /api/runs
+GET /api/runs/:run_id
+GET /api/runs/:run_id/events?after=0
+GET /api/runs/:run_id/output?offset=0
+```
+
+Security notes:
+
+- The dashboard is intended for trusted local development only.
+- It has no authentication.
+- Binding to a non-loopback host prints a warning because anyone who can reach that address may be able to inspect or launch local runs.
+- Artifact paths and run IDs are validated to prevent directory traversal.
+- State-changing routes use POST requests and CSRF tokens.
+
+Dashboard-launched runs are executed by a small background worker pool capped at four workers. A cancellation request records the run as cancelled, but Mini CI does not yet provide robust termination of every in-flight child process from the dashboard.
 
 ## Pipeline Configuration
 
@@ -1406,7 +1499,7 @@ bundle exec bin/mini-ci version
 Example output:
 
 ```text
-Mini CI 0.14.0
+Mini CI 0.15.0
 ```
 
 Show help:
@@ -1469,6 +1562,9 @@ Run `mini-ci help` for usage information.
 - Cache entries are not compressed and do not have eviction policies yet.
 - Plugins are trusted local Ruby code and are not sandboxed.
 - Plugin files are local only; there is no remote marketplace or automatic installer.
+- The dashboard is local-only and has no authentication.
+- Dashboard cancellation records cancellation, but does not yet guarantee termination of every in-flight child process.
+- Dashboard-launched runs store output and final status, but full structured job details are strongest for CLI runs recorded directly by Mini CI.
 - In-process plugin item handlers do not support command timeout or retry semantics.
 - Artifact collection happens once per item after final retry, not once per attempt.
 - Matrix runs are fail-late: one failed job does not stop later jobs.
@@ -1479,8 +1575,8 @@ Run `mini-ci help` for usage information.
 - No secrets management or secret masking.
 - No `.env` file support.
 - Timeout process-group termination is currently intended for Unix-like systems.
-- No local dashboard, remote cache servers, remote artifact storage, compression, Docker, deployment, frontend, or database support.
+- No remote cache servers, remote artifact storage, compression, Docker, deployment, hosted frontend, database, or authentication support.
 
 ## Next Milestone
 
-The next planned milestone adds a local dashboard.
+The next planned milestone is v1.0 production release preparation: hardening the CLI and dashboard, tightening documentation, improving packaging, and stabilizing the supported feature set.

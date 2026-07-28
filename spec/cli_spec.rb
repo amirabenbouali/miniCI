@@ -96,6 +96,16 @@ RSpec.describe MiniCi::CLI do
     end
   end
 
+  describe "dashboard" do
+    it "includes the dashboard command in help" do
+      exit_code, stdout, stderr = run_cli(["help"])
+
+      expect(exit_code).to eq(0)
+      expect(stdout).to include("mini-ci dashboard")
+      expect(stderr).to be_empty
+    end
+  end
+
   describe "validate" do
     it "returns success for the default configuration" do
       exit_code, stdout, stderr = run_cli(["validate"])
@@ -876,6 +886,28 @@ RSpec.describe MiniCi::CLI do
       expect(stderr).to be_empty
     ensure
       FileUtils.remove_entry(directory) if directory
+    end
+
+    it "persists run history by default and supports --no-history" do
+      directory = Dir.mktmpdir
+      config_path = File.join(directory, "pipeline.yml")
+      File.write(config_path, <<~YAML)
+        name: History Example
+        steps:
+          - name: Say hello
+            run: echo hello history
+      YAML
+
+      exit_code, = run_cli(["run", config_path], chdir: directory)
+      expect(exit_code).to eq(0)
+      expect(Dir.glob(File.join(directory, ".mini-ci", "runs", "run-*", "run.json")).length).to eq(1)
+
+      FileUtils.remove_entry(File.join(directory, ".mini-ci"))
+      exit_code, = run_cli(["run", config_path, "--no-history"], chdir: directory)
+      expect(exit_code).to eq(0)
+      expect(File).not_to exist(File.join(directory, ".mini-ci", "runs"))
+    ensure
+      FileUtils.remove_entry(directory) if directory && File.directory?(directory)
     end
   end
 

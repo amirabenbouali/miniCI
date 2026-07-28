@@ -1,0 +1,64 @@
+<section class="section-heading">
+  <div>
+    <p class="eyebrow"><%= h(@run["run_id"]) %></p>
+    <h1><%= h(@run["pipeline_name"] || @run["pipeline_file"]) %></h1>
+  </div>
+  <span class="status <%= h(@run["status"]) %>"><%= h(@run["status"]) %></span>
+</section>
+
+<section class="details">
+  <div><span>Source</span><strong><%= h(@run["source"]) %></strong></div>
+  <div><span>Pipeline file</span><strong><%= h(@run["pipeline_file"]) %></strong></div>
+  <div><span>Started</span><strong><%= h(presenter.format_time(@run["started_at"])) %></strong></div>
+  <div><span>Duration</span><strong><%= h(presenter.format_duration(@run["duration"])) %></strong></div>
+  <div><span>Concurrency</span><strong><%= h(@run["actual_concurrency"] || @run["configured_concurrency"] || "automatic") %></strong></div>
+</section>
+
+<section class="actions">
+  <a class="button secondary" href="/runs/<%= h(@run["run_id"]) %>/output">Output</a>
+  <% if @run.dig("artifacts", "directory") %>
+    <a class="button secondary" href="/runs/<%= h(@run["run_id"]) %>/artifacts">Artifacts</a>
+  <% end %>
+  <% if %w[queued running].include?(@run["status"]) %>
+    <form method="post" action="/runs/<%= h(@run["run_id"]) %>/cancel">
+      <input type="hidden" name="csrf_token" value="<%= h(csrf_token) %>">
+      <button type="submit">Cancel</button>
+    </form>
+  <% end %>
+  <% unless %w[queued running].include?(@run["status"]) %>
+    <form method="post" action="/runs/<%= h(@run["run_id"]) %>/delete">
+      <input type="hidden" name="csrf_token" value="<%= h(csrf_token) %>">
+      <button type="submit">Delete</button>
+    </form>
+  <% end %>
+</section>
+
+<section>
+  <h2>Failures</h2>
+  <% failures = Array(@run["failures"]) + Array(@run["plugin_failures"]) %>
+  <% if failures.empty? %>
+    <p class="empty">No failures recorded.</p>
+  <% else %>
+    <ul class="list">
+      <% failures.each do |failure| %>
+        <li><%= h(failure["summary"] || failure["message"] || failure) %></li>
+      <% end %>
+    </ul>
+  <% end %>
+</section>
+
+<section>
+  <h2>Jobs</h2>
+  <% if Array(@run["jobs"]).empty? %>
+    <p class="empty">No job details were recorded for this run.</p>
+  <% else %>
+    <div class="job-list">
+      <% @run["jobs"].each do |job| %>
+        <a class="job-row" href="/runs/<%= h(@run["run_id"]) %>/jobs/<%= h(job["index"]) %>">
+          <span><%= h(job["name"]) %></span>
+          <span class="status <%= h(job["status"]) %>"><%= h(job["status"]) %></span>
+        </a>
+      <% end %>
+    </div>
+  <% end %>
+</section>

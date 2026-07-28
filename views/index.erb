@@ -1,0 +1,30 @@
+<section class="hero">
+  <div>
+    <p class="eyebrow">Local dashboard</p>
+    <h1>Pipeline runs on this machine</h1>
+  </div>
+  <a class="button" href="/run/new">Start run</a>
+</section>
+
+<section class="stats">
+  <% @summary.each do |label, value| %>
+    <div class="stat">
+      <span><%= h(label) %></span>
+      <strong><%= h(value) %></strong>
+    </div>
+  <% end %>
+  <% if @corrupt_count.positive? %>
+    <div class="stat warning">
+      <span>Corrupt records</span>
+      <strong><%= h(@corrupt_count) %></strong>
+    </div>
+  <% end %>
+</section>
+
+<section>
+  <div class="section-heading">
+    <h2>Recent runs</h2>
+    <a href="/runs">View all</a>
+  </div>
+  <%= erb :_run_table, locals: { runs: @runs } %>
+</section>
