@@ -52,7 +52,7 @@ RSpec.describe "Mini CI plugins" do
     runner = MiniCi::Plugin::Runner.new(registry: MiniCi::Plugin.registry)
     runner.invoke(:before_item, MiniCi::Plugin::Context.new)
 
-    expect(events).to eq(["first-a", "first-b", "second"])
+    expect(events).to eq(%w[first-a first-b second])
   end
 
   it "returns structured plugin failures and stops later callbacks for the event" do
@@ -65,7 +65,7 @@ RSpec.describe "Mini CI plugins" do
     end
 
     failure = MiniCi::Plugin::Runner.new(registry: MiniCi::Plugin.registry)
-      .invoke(:after_run, MiniCi::Plugin::Context.new)
+                                    .invoke(:after_run, MiniCi::Plugin::Context.new)
 
     expect(failure.plugin_name).to eq("broken-plugin")
     expect(failure.event).to eq(:after_run)
@@ -96,7 +96,7 @@ RSpec.describe "Mini CI plugins" do
     loader = MiniCi::Plugin::Loader.new(registry: MiniCi::Plugin.registry, workspace: directory)
     loader.load(default: false, directories: [File.join(directory, "plugins")])
 
-    expect(MiniCi::Plugin.registry.plugins.map(&:name)).to eq(["a-plugin", "b-plugin"])
+    expect(MiniCi::Plugin.registry.plugins.map(&:name)).to eq(%w[a-plugin b-plugin])
   ensure
     FileUtils.remove_entry(directory) if directory
   end
@@ -160,4 +160,3 @@ RSpec.describe "Mini CI plugins" do
     FileUtils.remove_entry(directory) if directory
   end
 end
-

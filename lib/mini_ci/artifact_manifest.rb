@@ -64,9 +64,9 @@ module MiniCi
           }
           if artifact
             item_payload.merge!(
-            "artifact_directory" => artifact.destination ? @store.relative_to_run(artifact.destination) : nil,
-            "files" => artifact.copied_file_count,
-            "warnings" => artifact.warnings
+              "artifact_directory" => artifact.destination ? @store.relative_to_run(artifact.destination) : nil,
+              "files" => artifact.copied_file_count,
+              "warnings" => artifact.warnings
             )
           end
           item_payload["cache"] = cache_payload(cache) if cache

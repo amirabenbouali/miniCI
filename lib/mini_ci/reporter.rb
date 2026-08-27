@@ -182,12 +182,20 @@ module MiniCi
       @output.puts main_steps_summary_line(pipeline_result)
       @output.puts setup_summary_line(pipeline_result) if pipeline_result.configured_before_all_count.positive?
       @output.puts cleanup_summary_line(pipeline_result) if pipeline_result.configured_after_all_count.positive?
-      @output.puts "Retried steps: #{pipeline_result.retried_step_count}" if pipeline_result.retried_step_count.positive?
+      if pipeline_result.retried_step_count.positive?
+        @output.puts "Retried steps: #{pipeline_result.retried_step_count}"
+      end
       @output.puts "Attempts: #{pipeline_result.total_attempts}"
       @output.puts "Artifacts: #{pipeline_result.artifact_count} files" if pipeline_result.artifact_run_directory
-      @output.puts "Artifact warnings: #{pipeline_result.artifact_warning_count}" if pipeline_result.artifact_warning_count.positive?
-      @output.puts "Artifact failures: #{pipeline_result.artifact_failure_count}" if pipeline_result.artifact_failure_count.positive?
-      @output.puts "Artifact location: #{pipeline_result.artifact_run_directory}" if pipeline_result.artifact_run_directory
+      if pipeline_result.artifact_warning_count.positive?
+        @output.puts "Artifact warnings: #{pipeline_result.artifact_warning_count}"
+      end
+      if pipeline_result.artifact_failure_count.positive?
+        @output.puts "Artifact failures: #{pipeline_result.artifact_failure_count}"
+      end
+      if pipeline_result.artifact_run_directory
+        @output.puts "Artifact location: #{pipeline_result.artifact_run_directory}"
+      end
       print_cache_summary(pipeline_result)
       @output.puts "Duration: #{format_duration(pipeline_result.total_duration)}"
       print_failures(pipeline_result)
@@ -213,13 +221,19 @@ module MiniCi
       @output.puts "Combined job time: #{format_duration(matrix_run_result.sum_of_job_durations)}"
       if matrix_run_result.artifact_run_directory
         @output.puts "Artifacts: #{matrix_run_result.artifact_count} files across #{matrix_run_result.job_count} jobs"
-        @output.puts "Artifact warnings: #{matrix_run_result.artifact_warning_count}" if matrix_run_result.artifact_warning_count.positive?
-        @output.puts "Artifact failures: #{matrix_run_result.artifact_failure_count}" if matrix_run_result.artifact_failure_count.positive?
+        if matrix_run_result.artifact_warning_count.positive?
+          @output.puts "Artifact warnings: #{matrix_run_result.artifact_warning_count}"
+        end
+        if matrix_run_result.artifact_failure_count.positive?
+          @output.puts "Artifact failures: #{matrix_run_result.artifact_failure_count}"
+        end
         @output.puts "Artifact location: #{matrix_run_result.artifact_run_directory}"
       end
       if matrix_run_result.cache_configured_count.positive?
         @output.puts "Cache: #{matrix_run_result.cache_hit_count} hits, #{matrix_run_result.cache_miss_count} misses, #{matrix_run_result.cache_save_count} saves"
-        @output.puts "Cache warnings: #{matrix_run_result.cache_warning_count}" if matrix_run_result.cache_warning_count.positive?
+        if matrix_run_result.cache_warning_count.positive?
+          @output.puts "Cache warnings: #{matrix_run_result.cache_warning_count}"
+        end
       end
       @output.puts "Attempts: #{matrix_run_result.total_attempts}"
     end
@@ -230,9 +244,15 @@ module MiniCi
       return unless pipeline_result.cache_configured_count.positive?
 
       @output.puts "Cache: #{pipeline_result.cache_hit_count} hits, #{pipeline_result.cache_miss_count} misses, #{pipeline_result.cache_save_count} saves"
-      @output.puts "Cache warnings: #{pipeline_result.cache_warning_count}" if pipeline_result.cache_warning_count.positive?
-      @output.puts "Cache failures: #{pipeline_result.cache_failure_count}" if pipeline_result.cache_failure_count.positive?
-      @output.puts "Plugin failures: #{pipeline_result.plugin_failure_count}" if pipeline_result.plugin_failure_count.positive?
+      if pipeline_result.cache_warning_count.positive?
+        @output.puts "Cache warnings: #{pipeline_result.cache_warning_count}"
+      end
+      if pipeline_result.cache_failure_count.positive?
+        @output.puts "Cache failures: #{pipeline_result.cache_failure_count}"
+      end
+      return unless pipeline_result.plugin_failure_count.positive?
+
+      @output.puts "Plugin failures: #{pipeline_result.plugin_failure_count}"
     end
 
     def main_steps_summary_line(pipeline_result)

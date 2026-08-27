@@ -181,9 +181,9 @@ module MiniCi
 
     def validate_root!
       root_path = Pathname.new(@root)
-      if root_path.to_s == "/" || root_path.to_s.strip.empty?
-        raise UsageError, "cache directory is unsafe"
-      end
+      return unless root_path.to_s == "/" || root_path.to_s.strip.empty?
+
+      raise UsageError, "cache directory is unsafe"
     end
 
     def exact_entry_for(key)
@@ -266,7 +266,7 @@ module MiniCi
     end
 
     def safe_workspace_target(relative_path)
-      if Pathname.new(relative_path).absolute? || relative_path.split(/[\\\/]+/).include?("..")
+      if Pathname.new(relative_path).absolute? || relative_path.split(%r{[\\/]+}).include?("..")
         raise "cache entry path must stay inside the workspace"
       end
 

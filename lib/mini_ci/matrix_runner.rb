@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require "thread"
-
 require_relative "buffered_job_output"
 require_relative "command_runner"
 require_relative "concurrency_config"
@@ -19,11 +17,7 @@ module MiniCi
 
     def initialize(
       name:,
-      name_explicit: true,
-      matrix_definition:,
-      before_all:,
-      steps:,
-      after_all:,
+      matrix_definition:, before_all:, steps:, after_all:, name_explicit: true,
       env: {},
       concurrency: ConcurrencyConfig.new(nil),
       command_runner: nil,
@@ -171,9 +165,11 @@ module MiniCi
       )
       job_reporter.matrix_job_finished(job_result)
 
-      CompletedJob.new(index: job.index, total: total_jobs, display_name: job.display_name, job_result: job_result, output: buffer.string)
+      CompletedJob.new(index: job.index, total: total_jobs, display_name: job.display_name, job_result: job_result,
+                       output: buffer.string)
     rescue StandardError => e
-      CompletedJob.new(index: job.index, total: total_jobs, display_name: job.display_name, output: buffer&.string.to_s, error: e)
+      CompletedJob.new(index: job.index, total: total_jobs, display_name: job.display_name,
+                       output: buffer&.string.to_s, error: e)
     ensure
       buffer&.close
     end

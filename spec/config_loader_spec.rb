@@ -77,7 +77,7 @@ RSpec.describe MiniCi::ConfigLoader do
 
       config = loader_for(path).load
 
-      expect(config.steps.map(&:name)).to eq(["Alpha", "Beta"])
+      expect(config.steps.map(&:name)).to eq(%w[Alpha Beta])
       expect(config.steps.map(&:command)).to eq(["echo alpha", "echo beta"])
     ensure
       FileUtils.remove_entry(directory)
@@ -277,7 +277,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, 'Invalid pipeline configuration: before_all hook 1 cache is missing "key"')
+        .to raise_error(MiniCi::ConfigurationError,
+                        'Invalid pipeline configuration: before_all hook 1 cache is missing "key"')
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -292,7 +293,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 cache paths must be a non-empty array")
+        .to raise_error(MiniCi::ConfigurationError,
+                        "Invalid pipeline configuration: step 1 cache paths must be a non-empty array")
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -327,7 +329,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 cache save_when must be one of success, always")
+        .to raise_error(MiniCi::ConfigurationError,
+                        "Invalid pipeline configuration: step 1 cache save_when must be one of success, always")
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -415,7 +418,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: after_all hook 1 artifact path 1 must be a non-empty string")
+        .to raise_error(MiniCi::ConfigurationError,
+                        "Invalid pipeline configuration: after_all hook 1 artifact path 1 must be a non-empty string")
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -687,7 +691,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: before_all hook 1 retries must be a non-negative integer")
+        .to raise_error(MiniCi::ConfigurationError,
+                        "Invalid pipeline configuration: before_all hook 1 retries must be a non-negative integer")
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -722,7 +727,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: after_all hook 1 timeout must be greater than 0")
+        .to raise_error(MiniCi::ConfigurationError,
+                        "Invalid pipeline configuration: after_all hook 1 timeout must be greater than 0")
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -739,7 +745,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: after_all hook 1 retry_delay must be a non-negative number")
+        .to raise_error(MiniCi::ConfigurationError,
+                        "Invalid pipeline configuration: after_all hook 1 retry_delay must be a non-negative number")
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -800,7 +807,7 @@ RSpec.describe MiniCi::ConfigLoader do
             when: never
       YAML
 
-      expect(loader_for(path).load.steps.map(&:when_policy)).to eq([:failure, :always, :never])
+      expect(loader_for(path).load.steps.map(&:when_policy)).to eq(%i[failure always never])
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -847,7 +854,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, 'Invalid pipeline configuration: before_all hook 1 has invalid when value "sometimes"')
+        .to raise_error(MiniCi::ConfigurationError,
+                        'Invalid pipeline configuration: before_all hook 1 has invalid when value "sometimes"')
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -864,7 +872,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: after_all hook 1 when must be a string")
+        .to raise_error(MiniCi::ConfigurationError,
+                        "Invalid pipeline configuration: after_all hook 1 when must be a string")
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -892,7 +901,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, /Invalid pipeline configuration: step 1 has unsupported if expression/)
+        .to raise_error(MiniCi::ConfigurationError,
+                        /Invalid pipeline configuration: step 1 has unsupported if expression/)
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -906,7 +916,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, /Invalid pipeline configuration: step 1 has unsupported if expression/)
+        .to raise_error(MiniCi::ConfigurationError,
+                        /Invalid pipeline configuration: step 1 has unsupported if expression/)
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -967,9 +978,9 @@ RSpec.describe MiniCi::ConfigLoader do
 
       matrix = loader_for(path).load.matrix
 
-      expect(matrix.dimensions.keys).to eq(["ruby", "database"])
+      expect(matrix.dimensions.keys).to eq(%w[ruby database])
       expect(matrix.dimensions["ruby"]).to eq(["3.2", "3.3"])
-      expect(matrix.dimensions["database"]).to eq(["sqlite", "postgres"])
+      expect(matrix.dimensions["database"]).to eq(%w[sqlite postgres])
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -990,8 +1001,8 @@ RSpec.describe MiniCi::ConfigLoader do
 
       matrix = loader_for(path).load.matrix
 
-      expect(matrix.dimensions["debug"]).to eq(["true", "false"])
-      expect(matrix.dimensions["shard"]).to eq(["1", "2"])
+      expect(matrix.dimensions["debug"]).to eq(%w[true false])
+      expect(matrix.dimensions["shard"]).to eq(%w[1 2])
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -1036,7 +1047,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, 'Invalid pipeline configuration: matrix key "ruby-version" is invalid')
+        .to raise_error(MiniCi::ConfigurationError,
+                        'Invalid pipeline configuration: matrix key "ruby-version" is invalid')
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -1069,7 +1081,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, 'Invalid pipeline configuration: matrix value list for "ruby" must not be empty')
+        .to raise_error(MiniCi::ConfigurationError,
+                        'Invalid pipeline configuration: matrix value list for "ruby" must not be empty')
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -1084,7 +1097,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, 'Invalid pipeline configuration: matrix value list for "ruby" must be an array')
+        .to raise_error(MiniCi::ConfigurationError,
+                        'Invalid pipeline configuration: matrix value list for "ruby" must be an array')
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -1112,12 +1126,12 @@ RSpec.describe MiniCi::ConfigLoader do
     it "rejects matrices over the expansion limit before execution" do
       values = (1..257).map { |number| "            - #{number}" }.join("\n")
       path, directory = write_config(<<~YAML)
-        matrix:
-          shard:
-#{values}
-        steps:
-          - name: Step
-            run: echo step
+                matrix:
+                  shard:
+        #{values}
+                steps:
+                  - name: Step
+                    run: echo step
       YAML
 
       expect { loader_for(path).load }
@@ -1145,7 +1159,8 @@ RSpec.describe MiniCi::ConfigLoader do
         YAML
 
         expect { loader_for(path).load }
-          .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: concurrency must be a positive integer")
+          .to raise_error(MiniCi::ConfigurationError,
+                          "Invalid pipeline configuration: concurrency must be a positive integer")
         FileUtils.remove_entry(directory)
       end
     end
@@ -1159,7 +1174,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: concurrency 64 exceeds the maximum of 32")
+        .to raise_error(MiniCi::ConfigurationError,
+                        "Invalid pipeline configuration: concurrency 64 exceeds the maximum of 32")
     ensure
       FileUtils.remove_entry(directory) if directory && File.exist?(directory)
     end
@@ -1341,7 +1357,8 @@ RSpec.describe MiniCi::ConfigLoader do
       path, directory = write_config("- echo hello\n")
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: expected a mapping at the top level")
+        .to raise_error(MiniCi::ConfigurationError,
+                        "Invalid pipeline configuration: expected a mapping at the top level")
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -1357,7 +1374,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: global env contains a blank environment variable name")
+        .to raise_error(MiniCi::ConfigurationError,
+                        "Invalid pipeline configuration: global env contains a blank environment variable name")
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -1372,7 +1390,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: global env contains a non-string environment variable name")
+        .to raise_error(MiniCi::ConfigurationError,
+                        "Invalid pipeline configuration: global env contains a non-string environment variable name")
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -1387,7 +1406,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, 'Invalid pipeline configuration: global env variable "APP-NAME" must use a valid environment variable name')
+        .to raise_error(MiniCi::ConfigurationError,
+                        'Invalid pipeline configuration: global env variable "APP-NAME" must use a valid environment variable name')
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -1402,7 +1422,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, 'Invalid pipeline configuration: global env variable "APP=VALUE" must not contain =')
+        .to raise_error(MiniCi::ConfigurationError,
+                        'Invalid pipeline configuration: global env variable "APP=VALUE" must not contain =')
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -1417,7 +1438,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, 'Invalid pipeline configuration: step 1 env variable "DATABASE" must not be null')
+        .to raise_error(MiniCi::ConfigurationError,
+                        'Invalid pipeline configuration: step 1 env variable "DATABASE" must not be null')
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -1433,7 +1455,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, 'Invalid pipeline configuration: step 1 env variable "DATABASE" must contain a scalar value')
+        .to raise_error(MiniCi::ConfigurationError,
+                        'Invalid pipeline configuration: step 1 env variable "DATABASE" must contain a scalar value')
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -1449,7 +1472,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, 'Invalid pipeline configuration: global env variable "DATABASE" must contain a scalar value')
+        .to raise_error(MiniCi::ConfigurationError,
+                        'Invalid pipeline configuration: global env variable "DATABASE" must contain a scalar value')
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -1458,7 +1482,8 @@ RSpec.describe MiniCi::ConfigLoader do
       path, directory = write_config("env:\n  \"BAD\\0NAME\": value\nsteps:\n  - name: Step\n    run: echo hi\n")
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: global env variable name contains a null byte")
+        .to raise_error(MiniCi::ConfigurationError,
+                        "Invalid pipeline configuration: global env variable name contains a null byte")
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -1467,7 +1492,8 @@ RSpec.describe MiniCi::ConfigLoader do
       path, directory = write_config("env:\n  BAD: \"bad\\0value\"\nsteps:\n  - name: Step\n    run: echo hi\n")
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, 'Invalid pipeline configuration: global env variable "BAD" contains a null byte')
+        .to raise_error(MiniCi::ConfigurationError,
+                        'Invalid pipeline configuration: global env variable "BAD" contains a null byte')
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -1481,7 +1507,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 timeout must be greater than 0")
+        .to raise_error(MiniCi::ConfigurationError,
+                        "Invalid pipeline configuration: step 1 timeout must be greater than 0")
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -1495,7 +1522,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 timeout must be greater than 0")
+        .to raise_error(MiniCi::ConfigurationError,
+                        "Invalid pipeline configuration: step 1 timeout must be greater than 0")
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -1509,7 +1537,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 timeout must be a positive number")
+        .to raise_error(MiniCi::ConfigurationError,
+                        "Invalid pipeline configuration: step 1 timeout must be a positive number")
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -1523,7 +1552,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 timeout must be a positive number")
+        .to raise_error(MiniCi::ConfigurationError,
+                        "Invalid pipeline configuration: step 1 timeout must be a positive number")
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -1537,7 +1567,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 timeout must be a positive number")
+        .to raise_error(MiniCi::ConfigurationError,
+                        "Invalid pipeline configuration: step 1 timeout must be a positive number")
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -1552,7 +1583,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 timeout must be a positive number")
+        .to raise_error(MiniCi::ConfigurationError,
+                        "Invalid pipeline configuration: step 1 timeout must be a positive number")
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -1567,7 +1599,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 timeout must be a positive number")
+        .to raise_error(MiniCi::ConfigurationError,
+                        "Invalid pipeline configuration: step 1 timeout must be a positive number")
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -1581,7 +1614,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 retries must be a non-negative integer")
+        .to raise_error(MiniCi::ConfigurationError,
+                        "Invalid pipeline configuration: step 1 retries must be a non-negative integer")
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -1595,7 +1629,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 retries must be a non-negative integer")
+        .to raise_error(MiniCi::ConfigurationError,
+                        "Invalid pipeline configuration: step 1 retries must be a non-negative integer")
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -1609,7 +1644,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 retries must be a non-negative integer")
+        .to raise_error(MiniCi::ConfigurationError,
+                        "Invalid pipeline configuration: step 1 retries must be a non-negative integer")
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -1623,7 +1659,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 retries must be a non-negative integer")
+        .to raise_error(MiniCi::ConfigurationError,
+                        "Invalid pipeline configuration: step 1 retries must be a non-negative integer")
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -1637,7 +1674,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 retries must be a non-negative integer")
+        .to raise_error(MiniCi::ConfigurationError,
+                        "Invalid pipeline configuration: step 1 retries must be a non-negative integer")
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -1652,7 +1690,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 retries must be a non-negative integer")
+        .to raise_error(MiniCi::ConfigurationError,
+                        "Invalid pipeline configuration: step 1 retries must be a non-negative integer")
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -1667,7 +1706,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 retries must be a non-negative integer")
+        .to raise_error(MiniCi::ConfigurationError,
+                        "Invalid pipeline configuration: step 1 retries must be a non-negative integer")
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -1681,7 +1721,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 retry_delay must be a non-negative number")
+        .to raise_error(MiniCi::ConfigurationError,
+                        "Invalid pipeline configuration: step 1 retry_delay must be a non-negative number")
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -1695,7 +1736,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 retry_delay must be a non-negative number")
+        .to raise_error(MiniCi::ConfigurationError,
+                        "Invalid pipeline configuration: step 1 retry_delay must be a non-negative number")
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -1709,7 +1751,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 retry_delay must be a non-negative number")
+        .to raise_error(MiniCi::ConfigurationError,
+                        "Invalid pipeline configuration: step 1 retry_delay must be a non-negative number")
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -1723,7 +1766,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 retry_delay must be a non-negative number")
+        .to raise_error(MiniCi::ConfigurationError,
+                        "Invalid pipeline configuration: step 1 retry_delay must be a non-negative number")
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -1738,7 +1782,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 retry_delay must be a non-negative number")
+        .to raise_error(MiniCi::ConfigurationError,
+                        "Invalid pipeline configuration: step 1 retry_delay must be a non-negative number")
     ensure
       FileUtils.remove_entry(directory)
     end
@@ -1753,7 +1798,8 @@ RSpec.describe MiniCi::ConfigLoader do
       YAML
 
       expect { loader_for(path).load }
-        .to raise_error(MiniCi::ConfigurationError, "Invalid pipeline configuration: step 1 retry_delay must be a non-negative number")
+        .to raise_error(MiniCi::ConfigurationError,
+                        "Invalid pipeline configuration: step 1 retry_delay must be a non-negative number")
     ensure
       FileUtils.remove_entry(directory)
     end

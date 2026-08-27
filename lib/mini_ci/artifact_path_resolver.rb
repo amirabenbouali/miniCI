@@ -51,9 +51,10 @@ module MiniCi
         raise "artifact path has unsupported expression #{expression.inspect}" unless match
 
         value = env.fetch(match[1], "")
-        if value.include?("\0") || value.split(/[\\\/]+/).include?("..") || Pathname.new(value).absolute?
+        if value.include?("\0") || value.split(%r{[\\/]+}).include?("..") || Pathname.new(value).absolute?
           raise "artifact path environment value #{match[1].inspect} must stay inside the workspace"
         end
+
         value
       end
     end
@@ -75,13 +76,9 @@ module MiniCi
 
     def safe_source_for(path)
       real_path = Pathname.new(path).realpath
-      unless inside_workspace?(real_path)
-        raise "artifact source #{path.inspect} resolves outside the workspace"
-      end
+      raise "artifact source #{path.inspect} resolves outside the workspace" unless inside_workspace?(real_path)
 
-      if File.directory?(path)
-        validate_directory_tree(path)
-      end
+      validate_directory_tree(path) if File.directory?(path)
 
       real_path.to_s
     end
@@ -91,9 +88,7 @@ module MiniCi
         next if [".", ".."].include?(File.basename(entry))
 
         real_path = Pathname.new(entry).realpath
-        unless inside_workspace?(real_path)
-          raise "artifact source #{entry.inspect} resolves outside the workspace"
-        end
+        raise "artifact source #{entry.inspect} resolves outside the workspace" unless inside_workspace?(real_path)
       end
     end
 

@@ -6,4 +6,3 @@ MiniCi::Plugin.register(
   api_version: "2"
 ) do |_plugin|
 end
-

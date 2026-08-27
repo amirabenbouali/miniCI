@@ -9,9 +9,7 @@ module MiniCi
     EXPRESSION_PATTERN = /\Aenv\.([A-Za-z_][A-Za-z0-9_]*)\s*(==|!=)\s*(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)')\z/
 
     def parse(expression)
-      unless expression.is_a?(String)
-        raise ArgumentError, "if expression must be a string"
-      end
+      raise ArgumentError, "if expression must be a string" unless expression.is_a?(String)
 
       stripped = expression.strip
       raise ArgumentError, "if expression is empty" if stripped.empty?

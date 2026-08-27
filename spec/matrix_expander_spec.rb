@@ -17,7 +17,7 @@ RSpec.describe MiniCi::MatrixExpander do
   end
 
   it "expands two dimensions in deterministic order" do
-    combinations = expander.expand(definition("ruby" => ["3.2", "3.3"], "db" => ["sqlite", "postgres"]))
+    combinations = expander.expand(definition("ruby" => ["3.2", "3.3"], "db" => %w[sqlite postgres]))
 
     expect(combinations.map(&:values)).to eq([
                                                { "ruby" => "3.2", "db" => "sqlite" },
@@ -28,7 +28,7 @@ RSpec.describe MiniCi::MatrixExpander do
   end
 
   it "expands three dimensions" do
-    combinations = expander.expand(definition("ruby" => ["3.3"], "db" => ["sqlite"], "os" => ["linux", "macos"]))
+    combinations = expander.expand(definition("ruby" => ["3.3"], "db" => ["sqlite"], "os" => %w[linux macos]))
 
     expect(combinations.map(&:label)).to eq([
                                               "ruby=3.3, db=sqlite, os=linux",
@@ -46,7 +46,9 @@ RSpec.describe MiniCi::MatrixExpander do
   end
 
   it "rejects empty dimensions" do
-    expect { expander.expand(definition({})) }.to raise_error(ArgumentError, "Matrix must contain at least one dimension")
+    expect do
+      expander.expand(definition({}))
+    end.to raise_error(ArgumentError, "Matrix must contain at least one dimension")
   end
 
   it "enforces the expansion limit" do

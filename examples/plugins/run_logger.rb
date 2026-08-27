@@ -30,4 +30,3 @@ MiniCi::Plugin.register(
     }
   end
 end
-

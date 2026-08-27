@@ -194,17 +194,24 @@ module MiniCi
       run_output = history ? TeeOutput.new(@output, history[:output_writer]) : @output
       @active_output = run_output
       plugin_metadata = Plugin::MetadataBuilder.new
-      before_run_failure = invoke_plugin_callback(registry, :before_run, plugin_context(configuration: config, run_id: run_id, metadata: plugin_metadata))
+      before_run_failure = invoke_plugin_callback(registry, :before_run,
+                                                  plugin_context(configuration: config, run_id: run_id, metadata: plugin_metadata))
       if before_run_failure
         Reporter.new(output: run_output).plugin_failure(before_run_failure)
         history[:repository].fail(run_id, status: "failed", message: before_run_failure.summary) if history
         return PIPELINE_FAILURE
       end
 
-      history[:repository].mark_running(run_id, pipeline_name: config.name, configured_concurrency: concurrency_label(concurrency_override || config.concurrency)) if history
+      if history
+        history[:repository].mark_running(run_id, pipeline_name: config.name,
+                                                  configured_concurrency: concurrency_label(concurrency_override || config.concurrency))
+      end
       artifact_store = artifact_store_for(config, artifacts_dir)
       artifact_collector = artifact_store ? ArtifactCollector.new(workspace: Dir.pwd) : nil
-      cache_store = cache_enabled ? CacheStore.new(root: cache_dir || CacheStore::DEFAULT_ROOT, workspace: Dir.pwd) : nil
+      cache_store = if cache_enabled
+                      CacheStore.new(root: cache_dir || CacheStore::DEFAULT_ROOT,
+                                     workspace: Dir.pwd)
+                    end
       command_runner = CommandRunner.new(stdout: run_output, stderr: run_output)
       if config.matrix
         result = MatrixRunner.new(
@@ -225,12 +232,15 @@ module MiniCi
           run_id: run_id,
           reporter: Reporter.new(output: run_output)
         ).run
-        after_run_failure = invoke_plugin_callback(registry, :after_run, plugin_context(result: result, run_id: run_id, metadata: plugin_metadata))
+        after_run_failure = invoke_plugin_callback(registry, :after_run,
+                                                   plugin_context(result: result, run_id: run_id, metadata: plugin_metadata))
         plugin_failures = result_plugin_failures(result, after_run_failure)
         overall_success = result.success? && plugin_failures.empty?
         Reporter.new(output: run_output).run_summary(result, plugin_failures: plugin_failures)
-        write_manifest(artifact_store, result, config.name, matrix: true, registry: registry, metadata: plugin_metadata, plugin_failures: plugin_failures, overall_success: overall_success)
-        persist_result(history, result, matrix: true, registry: registry, plugin_metadata: plugin_metadata, plugin_failures: plugin_failures)
+        write_manifest(artifact_store, result, config.name, matrix: true, registry: registry,
+                                                            metadata: plugin_metadata, plugin_failures: plugin_failures, overall_success: overall_success)
+        persist_result(history, result, matrix: true, registry: registry, plugin_metadata: plugin_metadata,
+                                        plugin_failures: plugin_failures)
 
         return overall_success ? SUCCESS : PIPELINE_FAILURE
       end
@@ -253,12 +263,15 @@ module MiniCi
         run_id: run_id,
         reporter: Reporter.new(output: run_output)
       ).run
-      after_run_failure = invoke_plugin_callback(registry, :after_run, plugin_context(result: result, run_id: run_id, metadata: plugin_metadata))
+      after_run_failure = invoke_plugin_callback(registry, :after_run,
+                                                 plugin_context(result: result, run_id: run_id, metadata: plugin_metadata))
       plugin_failures = result_plugin_failures(result, after_run_failure)
       overall_success = result.success? && plugin_failures.empty?
       Reporter.new(output: run_output).run_summary(result, plugin_failures: plugin_failures)
-      write_manifest(artifact_store, result, config.name, matrix: false, registry: registry, metadata: plugin_metadata, plugin_failures: plugin_failures, overall_success: overall_success)
-      persist_result(history, result, matrix: false, registry: registry, plugin_metadata: plugin_metadata, plugin_failures: plugin_failures)
+      write_manifest(artifact_store, result, config.name, matrix: false, registry: registry, metadata: plugin_metadata,
+                                                          plugin_failures: plugin_failures, overall_success: overall_success)
+      persist_result(history, result, matrix: false, registry: registry, plugin_metadata: plugin_metadata,
+                                      plugin_failures: plugin_failures)
 
       overall_success ? SUCCESS : PIPELINE_FAILURE
     ensure
@@ -328,7 +341,9 @@ module MiniCi
         end
         @output.puts "     Timeout: #{format_timeout(step.timeout)}" if step.timeout
         @output.puts "     Retries: #{step.retries}" if step.retries.positive?
-        @output.puts "     Retry delay: #{format_duration(step.retry_delay)}" if step.retries.positive? && step.retry_delay.positive?
+        if step.retries.positive? && step.retry_delay.positive?
+          @output.puts "     Retry delay: #{format_duration(step.retry_delay)}"
+        end
         @output.puts "     When: #{step.when_policy}" if step.when_policy_explicit?
         @output.puts "     If: #{step.condition.source}" if step.condition
         print_artifacts(step.artifacts)
@@ -369,9 +384,7 @@ module MiniCi
     end
 
     def config_path_from(arguments, command)
-      if arguments.length > 1
-        raise UsageError, "#{command} accepts at most one file argument"
-      end
+      raise UsageError, "#{command} accepts at most one file argument" if arguments.length > 1
 
       arguments.fetch(0, ConfigLoader::DEFAULT_CONFIG_FILE)
     end
@@ -389,7 +402,7 @@ module MiniCi
       index = 0
       while index < remaining.length
         argument = remaining[index]
-        if argument == "--concurrency" || argument == "-j"
+        if ["--concurrency", "-j"].include?(argument)
           value = remaining[index + 1]
           raise UsageError, "#{argument} requires a value" unless value
 
@@ -430,7 +443,8 @@ module MiniCi
         end
       end
 
-      [config_path_from(remaining, "run"), concurrency, artifacts_dir, cache_dir, cache_enabled, plugin_files, plugin_dirs, history_enabled]
+      [config_path_from(remaining, "run"), concurrency, artifacts_dir, cache_dir, cache_enabled, plugin_files,
+       plugin_dirs, history_enabled]
     end
 
     def config_options_from(arguments, command)
@@ -488,7 +502,9 @@ module MiniCi
         @output.puts "Plugin validation passed."
         @output.puts
         @output.puts "Plugins: #{registry.plugins.length}"
-        @output.puts "Callbacks: #{MiniCi::Plugin::Definition::CALLBACK_EVENTS.sum { |event| registry.callbacks_for(event).length }}"
+        @output.puts "Callbacks: #{MiniCi::Plugin::Definition::CALLBACK_EVENTS.sum do |event|
+          registry.callbacks_for(event).length
+        end}"
         @output.puts "Custom item types: #{registry.item_types.length}"
         @output.puts "Validators: #{registry.validators.length}"
         SUCCESS
@@ -637,9 +653,7 @@ module MiniCi
     end
 
     def parse_concurrency_override(value)
-      unless value.match?(/\A[1-9][0-9]*\z/)
-        raise UsageError, "concurrency must be a positive integer"
-      end
+      raise UsageError, "concurrency must be a positive integer" unless value.match?(/\A[1-9][0-9]*\z/)
 
       ConcurrencyConfig.new(value.to_i)
     end
@@ -674,10 +688,12 @@ module MiniCi
       ArtifactRunStore.new(root: artifacts_dir || ArtifactRunStore::DEFAULT_ROOT, workspace: Dir.pwd)
     end
 
-    def write_manifest(artifact_store, result, pipeline_name, matrix:, registry: Plugin.registry, metadata: nil, plugin_failures: [], overall_success: nil)
+    def write_manifest(artifact_store, result, pipeline_name, matrix:, registry: Plugin.registry, metadata: nil,
+                       plugin_failures: [], overall_success: nil)
       return unless artifact_store
 
-      manifest = ArtifactManifest.new(store: artifact_store, plugin_registry: registry, plugin_metadata: metadata, plugin_failures: plugin_failures)
+      manifest = ArtifactManifest.new(store: artifact_store, plugin_registry: registry, plugin_metadata: metadata,
+                                      plugin_failures: plugin_failures)
       if matrix
         manifest.write_for_matrix(result, pipeline_name: pipeline_name, overall_success: overall_success)
       else
@@ -712,7 +728,7 @@ module MiniCi
       Plugin::Runner.new(registry: registry).invoke(event, context)
     end
 
-    def plugin_context(configuration: nil, result: nil, run_id:, metadata:)
+    def plugin_context(run_id:, metadata:, configuration: nil, result: nil)
       Plugin::Context.new(
         configuration: configuration,
         result: result,
@@ -813,9 +829,7 @@ module MiniCi
       shown.each_with_index do |combination, index|
         @output.puts "  #{index + 1}. #{combination.label}"
       end
-      if combinations.length > display_limit
-        @output.puts "  ... #{combinations.length - display_limit} more"
-      end
+      @output.puts "  ... #{combinations.length - display_limit} more" if combinations.length > display_limit
       @output.puts
     end
 

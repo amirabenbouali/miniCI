@@ -50,7 +50,7 @@ RSpec.describe MiniCi::MatrixRunner do
   def matrix
     MiniCi::MatrixDefinition.new(
       "ruby" => ["3.2", "3.3"],
-      "database" => ["sqlite", "postgres"]
+      "database" => %w[sqlite postgres]
     )
   end
 
@@ -79,42 +79,42 @@ RSpec.describe MiniCi::MatrixRunner do
 
     expect(matrix_result.job_count).to eq(4)
     expect(command_runner.envs.map { |env| [env["MATRIX_RUBY"], env["MATRIX_DATABASE"]] }).to eq([
-                                                                                                    ["3.2", "sqlite"],
-                                                                                                    ["3.2", "postgres"],
-                                                                                                    ["3.3", "sqlite"],
-                                                                                                    ["3.3", "postgres"]
-                                                                                                  ])
+                                                                                                   ["3.2", "sqlite"],
+                                                                                                   ["3.2", "postgres"],
+                                                                                                   ["3.3", "sqlite"],
+                                                                                                   ["3.3", "postgres"]
+                                                                                                 ])
   end
 
   it "continues later jobs after one job fails" do
     command_runner = FakeMatrixCommandRunner.new([
-                                                  result(success: true),
-                                                  result(success: false),
-                                                  result(success: true),
-                                                  result(success: true)
-                                                ])
+                                                   result(success: true),
+                                                   result(success: false),
+                                                   result(success: true),
+                                                   result(success: true)
+                                                 ])
 
     matrix_result = runner_with(
       command_runner: command_runner,
       steps: [step("Check", "check")]
     ).run
 
-    expect(command_runner.commands).to eq(["check", "check", "check", "check"])
+    expect(command_runner.commands).to eq(%w[check check check check])
     expect(matrix_result).to be_failed
     expect(matrix_result.failed_job_count).to eq(1)
   end
 
   it "runs cleanup for failed jobs" do
     command_runner = FakeMatrixCommandRunner.new([
-                                                  result(success: false),
-                                                  result(success: true),
-                                                  result(success: true),
-                                                  result(success: true),
-                                                  result(success: true),
-                                                  result(success: true),
-                                                  result(success: true),
-                                                  result(success: true)
-                                                ])
+                                                   result(success: false),
+                                                   result(success: true),
+                                                   result(success: true),
+                                                   result(success: true),
+                                                   result(success: true),
+                                                   result(success: true),
+                                                   result(success: true),
+                                                   result(success: true)
+                                                 ])
 
     runner_with(
       command_runner: command_runner,
@@ -122,7 +122,7 @@ RSpec.describe MiniCi::MatrixRunner do
       after_all: [step("Cleanup", "cleanup")]
     ).run
 
-    expect(command_runner.commands.first(2)).to eq(["check", "cleanup"])
+    expect(command_runner.commands.first(2)).to eq(%w[check cleanup])
   end
 
   it "makes matrix values available to setup, steps, cleanup, and conditions" do
@@ -138,12 +138,12 @@ RSpec.describe MiniCi::MatrixRunner do
       after_all: [step("Cleanup", "cleanup")]
     ).run
 
-    expect(command_runner.commands).to eq([
-                                           "setup", "step", "cleanup",
-                                           "setup", "step", "postgres", "cleanup",
-                                           "setup", "step", "cleanup",
-                                           "setup", "step", "postgres", "cleanup"
-                                         ])
+    expect(command_runner.commands).to eq(%w[
+                                            setup step cleanup
+                                            setup step postgres cleanup
+                                            setup step cleanup
+                                            setup step postgres cleanup
+                                          ])
   end
 
   it "applies environment precedence without leaking between jobs" do
@@ -155,9 +155,9 @@ RSpec.describe MiniCi::MatrixRunner do
       steps: [step("Override", "override", env: { "MATRIX_RUBY" => "step" })]
     ).run
 
-    expect(command_runner.envs.map { |env| env["MATRIX_RUBY"] }).to eq(["step", "step", "step", "step"])
+    expect(command_runner.envs.map { |env| env["MATRIX_RUBY"] }).to eq(%w[step step step step])
     expect(command_runner.envs.map { |env| env["APP_ENV"] }.uniq).to eq(["test"])
-    expect(command_runner.envs.map { |env| env["MATRIX_DATABASE"] }).to eq(["sqlite", "postgres", "sqlite", "postgres"])
+    expect(command_runner.envs.map { |env| env["MATRIX_DATABASE"] }).to eq(%w[sqlite postgres sqlite postgres])
   end
 
   it "does not mutate global ENV" do

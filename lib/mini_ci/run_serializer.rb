@@ -60,7 +60,11 @@ module MiniCi
         "name" => item.step.name,
         "command" => item.step.command,
         "uses" => item.step.uses,
-        "status" => item.skipped? ? "skipped" : (item.success? ? "passed" : "failed"),
+        "status" => if item.skipped?
+                      "skipped"
+                    else
+                      (item.success? ? "passed" : "failed")
+                    end,
         "duration" => item.duration,
         "skip_reason" => item.skip_reason&.to_s,
         "attempts" => item.attempts.map { |attempt| attempt_result(attempt) },

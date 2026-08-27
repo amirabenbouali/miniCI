@@ -60,7 +60,10 @@ module MiniCi
       step_results = []
       after_all_results = []
       pipeline_failed = !before_pipeline_failure.nil?
-      before_all_results << plugin_failure_result(before_pipeline_failure, category: :before_all) if before_pipeline_failure
+      if before_pipeline_failure
+        before_all_results << plugin_failure_result(before_pipeline_failure,
+                                                    category: :before_all)
+      end
 
       pipeline_failed = run_phase(
         @before_all,
@@ -315,7 +318,8 @@ module MiniCi
         failure: failure.message
       )
       @last_plugin_failure = failure
-      AttemptResult.new(attempt_number: attempt_number, success: false, exit_status: 1, duration: @clock.call - started_at)
+      AttemptResult.new(attempt_number: attempt_number, success: false, exit_status: 1,
+                        duration: @clock.call - started_at)
     end
 
     def attach_artifacts(step_result, category:, index:)
@@ -435,9 +439,7 @@ module MiniCi
     end
 
     def validate_name(name)
-      unless name.is_a?(String) && !name.strip.empty?
-        raise ArgumentError, "Pipeline name must be a non-empty string"
-      end
+      raise ArgumentError, "Pipeline name must be a non-empty string" unless name.is_a?(String) && !name.strip.empty?
 
       name
     end
@@ -488,14 +490,10 @@ module MiniCi
     end
 
     def validate_steps(steps, label = "Pipeline steps")
-      unless steps.respond_to?(:each)
-        raise ArgumentError, "#{label} must be an ordered collection"
-      end
+      raise ArgumentError, "#{label} must be an ordered collection" unless steps.respond_to?(:each)
 
       steps.to_a.each do |step|
-        unless step.is_a?(Step)
-          raise ArgumentError, "#{label} must be MiniCi::Step instances"
-        end
+        raise ArgumentError, "#{label} must be MiniCi::Step instances" unless step.is_a?(Step)
       end
     end
   end

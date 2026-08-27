@@ -11,7 +11,9 @@ module MiniCi
 
     attr_reader :root, :run_id, :run_directory, :started_at
 
-    def initialize(root: DEFAULT_ROOT, workspace: Dir.pwd, clock: -> { Time.now.utc }, token_generator: -> { SecureRandom.hex(3) })
+    def initialize(root: DEFAULT_ROOT, workspace: Dir.pwd, clock: -> { Time.now.utc }, token_generator: lambda {
+      SecureRandom.hex(3)
+    })
       @workspace = File.expand_path(workspace)
       @root = expand_root(root)
       @started_at = clock.call.utc
@@ -46,9 +48,7 @@ module MiniCi
     end
 
     def validate_root!
-      if File.file?(@root)
-        raise ConfigurationError, "Invalid artifact destination: #{@root} is a file"
-      end
+      raise ConfigurationError, "Invalid artifact destination: #{@root} is a file" if File.file?(@root)
 
       FileUtils.mkdir_p(@root)
     rescue SystemCallError => e

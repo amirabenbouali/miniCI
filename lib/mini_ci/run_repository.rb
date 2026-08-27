@@ -17,7 +17,9 @@ module MiniCi
 
     attr_reader :root
 
-    def initialize(root: DEFAULT_ROOT, workspace: Dir.pwd, clock: -> { Time.now.utc }, token_generator: -> { SecureRandom.hex(3) })
+    def initialize(root: DEFAULT_ROOT, workspace: Dir.pwd, clock: -> { Time.now.utc }, token_generator: lambda {
+      SecureRandom.hex(3)
+    })
       @workspace = Pathname.new(workspace).realpath
       @root = File.expand_path(root, @workspace.to_s)
       @clock = clock
@@ -167,12 +169,16 @@ module MiniCi
 
       artifact_root = Pathname.new(root).realpath
       requested = relative_path.to_s
-      raise UsageError, "Invalid artifact path" if requested.include?("\0") || requested.split(/[\\\/]+/).include?("..")
+      if requested.include?("\0") || requested.split(%r{[\\/]+}).include?("..")
+        raise UsageError,
+              "Invalid artifact path"
+      end
 
       path = Pathname.new(File.join(artifact_root.to_s, requested)).realpath
       unless path.to_s == artifact_root.to_s || path.to_s.start_with?("#{artifact_root}/")
         raise UsageError, "Invalid artifact path"
       end
+
       path.to_s
     end
 
@@ -204,9 +210,9 @@ module MiniCi
     end
 
     def validate_run_id!(run_id)
-      unless run_id.to_s.match?(RUN_ID_PATTERN)
-        raise UsageError, "Invalid run id"
-      end
+      return if run_id.to_s.match?(RUN_ID_PATTERN)
+
+      raise UsageError, "Invalid run id"
     end
 
     def terminal?(record)

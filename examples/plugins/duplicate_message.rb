@@ -5,4 +5,3 @@ MiniCi::Plugin.register(
   version: "1.0.1",
   description: "Intentionally duplicates message-plugin for validation examples"
 )
-

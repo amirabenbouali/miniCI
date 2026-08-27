@@ -23,7 +23,8 @@ RSpec.describe MiniCi::CacheKeyResolver do
 
   it "resolves environment expressions" do
     with_workspace do |workspace|
-      key = described_class.new(workspace: workspace).resolve("ruby-${{ env.MATRIX_RUBY }}", env: { "MATRIX_RUBY" => "3.2" })
+      key = described_class.new(workspace: workspace).resolve("ruby-${{ env.MATRIX_RUBY }}",
+                                                              env: { "MATRIX_RUBY" => "3.2" })
 
       expect(key).to eq("ruby-3.2")
     end
@@ -56,4 +57,3 @@ RSpec.describe MiniCi::CacheKeyResolver do
     end
   end
 end
-

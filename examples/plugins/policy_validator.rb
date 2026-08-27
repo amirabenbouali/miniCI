@@ -14,4 +14,3 @@ MiniCi::Plugin.register(
     messages
   end
 end
-

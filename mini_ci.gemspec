@@ -16,7 +16,8 @@ Gem::Specification.new do |spec|
     "homepage_uri" => spec.homepage,
     "source_code_uri" => "#{spec.homepage}/tree/main",
     "changelog_uri" => "#{spec.homepage}/blob/main/CHANGELOG.md",
-    "bug_tracker_uri" => "#{spec.homepage}/issues"
+    "bug_tracker_uri" => "#{spec.homepage}/issues",
+    "rubygems_mfa_required" => "true"
   }
 
   spec.files = Dir[
@@ -47,4 +48,6 @@ Gem::Specification.new do |spec|
   spec.add_development_dependency "rack-test", "~> 2.1"
   spec.add_development_dependency "rake", "~> 13.0"
   spec.add_development_dependency "rspec", "~> 3.13"
+  spec.add_development_dependency "rubocop", "~> 1.75"
+  spec.add_development_dependency "rubocop-rspec", "~> 3.6"
 end

@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require "fileutils"
-require "thread"
 
 module MiniCi
   class RunOutputWriter
@@ -86,4 +85,3 @@ module MiniCi
     end
   end
 end
-

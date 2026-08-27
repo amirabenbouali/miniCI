@@ -4,7 +4,7 @@ require "pathname"
 
 module MiniCi
   class CacheDefinition
-    VALID_SAVE_POLICIES = [:success, :always].freeze
+    VALID_SAVE_POLICIES = %i[success always].freeze
 
     attr_reader :key, :paths, :restore_keys, :save_when
 
@@ -17,7 +17,7 @@ module MiniCi
     end
 
     def save_on_success?
-      save_when == :success || save_when == :always
+      %i[success always].include?(save_when)
     end
 
     def save_on_failure?
@@ -35,19 +35,15 @@ module MiniCi
     end
 
     def validate_paths(value)
-      unless value.is_a?(Array) && !value.empty?
-        raise ArgumentError, "cache paths must be a non-empty array"
-      end
+      raise ArgumentError, "cache paths must be a non-empty array" unless value.is_a?(Array) && !value.empty?
 
       value.map { |path| validate_path(path) }.freeze
     end
 
     def validate_path(path)
-      unless path.is_a?(String) && !path.strip.empty?
-        raise ArgumentError, "cache path must be a non-empty string"
-      end
+      raise ArgumentError, "cache path must be a non-empty string" unless path.is_a?(String) && !path.strip.empty?
 
-      if Pathname.new(path).absolute? || path.split(/[\\\/]+/).include?("..")
+      if Pathname.new(path).absolute? || path.split(%r{[\\/]+}).include?("..")
         raise ArgumentError, "cache path must stay inside the workspace"
       end
 
@@ -55,9 +51,7 @@ module MiniCi
     end
 
     def validate_restore_keys(value)
-      unless value.is_a?(Array)
-        raise ArgumentError, "cache restore_keys must be an array"
-      end
+      raise ArgumentError, "cache restore_keys must be an array" unless value.is_a?(Array)
 
       value.map { |key| validate_key(key, "cache restore key") }.freeze
     end

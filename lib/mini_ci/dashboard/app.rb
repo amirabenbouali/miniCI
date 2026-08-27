@@ -61,7 +61,7 @@ module MiniCi
         def nav_item(label, href, icon)
           active = href == "/" ? current_path == "/" : current_path.start_with?(href)
           class_name = active ? "nav-link active" : "nav-link"
-          %(<a class="#{class_name}" href="#{href}" #{active ? 'aria-current="page"' : ""}>#{dashboard_icon(icon)}<span>#{h(label)}</span></a>)
+          %(<a class="#{class_name}" href="#{href}" #{'aria-current="page"' if active}>#{dashboard_icon(icon)}<span>#{h(label)}</span></a>)
         end
 
         def status_badge(status)

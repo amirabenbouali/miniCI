@@ -41,7 +41,9 @@ module MiniCi
     end
 
     def artifact_run_directory
-      matrix_job_results.find { |job| job.pipeline_result.artifact_run_directory }&.pipeline_result&.artifact_run_directory
+      matrix_job_results.find do |job|
+        job.pipeline_result.artifact_run_directory
+      end&.pipeline_result&.artifact_run_directory
     end
 
     def artifact_count

@@ -3,7 +3,6 @@
 require "json"
 require "fileutils"
 require "time"
-require "thread"
 
 module MiniCi
   class RunEventWriter
@@ -29,11 +28,11 @@ module MiniCi
     def read(after: 0)
       cursor = [after.to_i, 0].max
       events = []
-      File.readlines(@path).each_with_index do |line, index|
+      File.readlines(@path, encoding: Encoding::UTF_8).each_with_index do |line, index|
         next if index < cursor
 
         events << JSON.parse(line)
-      rescue JSON::ParserError
+      rescue JSON::ParserError, EncodingError
         next
       end
       { "events" => events, "next_cursor" => cursor + events.length }

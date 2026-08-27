@@ -88,7 +88,7 @@ RSpec.describe MiniCi::CLI do
     end
 
     it "rejects extra arguments" do
-      exit_code, stdout, stderr = run_cli(["version", "extra"])
+      exit_code, stdout, stderr = run_cli(%w[version extra])
 
       expect(exit_code).to eq(2)
       expect(stdout).to be_empty
@@ -506,7 +506,7 @@ RSpec.describe MiniCi::CLI do
       expect(stdout).to include("1. Print global variables")
       expect(stdout).to include("bash scripts/print_env.sh")
       expect(stdout).to include("2. Override one variable")
-      expect(stdout).to include('ruby -e')
+      expect(stdout).to include("ruby -e")
       expect(stderr).to be_empty
     end
 
@@ -869,7 +869,8 @@ RSpec.describe MiniCi::CLI do
     it "returns 0 for the successful artifact example" do
       directory = Dir.mktmpdir
 
-      exit_code, stdout, stderr = run_cli(["run", "examples/artifacts-success-pipeline.yml", "--artifacts-dir", directory])
+      exit_code, stdout, stderr = run_cli(["run", "examples/artifacts-success-pipeline.yml", "--artifacts-dir",
+                                           directory])
 
       expect(exit_code).to eq(0)
       expect(stdout).to include("Artifacts: 3 files")
@@ -896,7 +897,8 @@ RSpec.describe MiniCi::CLI do
     it "returns 0 for the matrix artifact example" do
       directory = Dir.mktmpdir
 
-      exit_code, stdout, stderr = run_cli(["run", "examples/artifacts-matrix-pipeline.yml", "--concurrency", "2", "--artifacts-dir", directory])
+      exit_code, stdout, stderr = run_cli(["run", "examples/artifacts-matrix-pipeline.yml", "--concurrency", "2",
+                                           "--artifacts-dir", directory])
 
       expect(exit_code).to eq(0)
       expect(stdout).to include("Artifacts:")
@@ -940,7 +942,7 @@ RSpec.describe MiniCi::CLI do
     end
 
     it "rejects extra help arguments" do
-      exit_code, stdout, stderr = run_cli(["help", "extra"])
+      exit_code, stdout, stderr = run_cli(%w[help extra])
 
       expect(exit_code).to eq(2)
       expect(stdout).to be_empty

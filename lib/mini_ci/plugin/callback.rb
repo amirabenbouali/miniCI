@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require "thread"
-
 module MiniCi
   module Plugin
     class Callback
@@ -30,4 +28,3 @@ module MiniCi
     end
   end
 end
-

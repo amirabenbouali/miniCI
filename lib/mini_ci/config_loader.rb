@@ -17,9 +17,10 @@ module MiniCi
     DEFAULT_CONFIG_FILE = "pipeline.yml"
     DEFAULT_PIPELINE_NAME = "Mini CI"
     ENV_NAME_PATTERN = /\A[A-Za-z_][A-Za-z0-9_]*\z/
-    VALID_WHEN_POLICIES = ["success", "failure", "always", "never"].freeze
+    VALID_WHEN_POLICIES = %w[success failure always never].freeze
 
-    Configuration = Struct.new(:name, :before_all, :steps, :after_all, :env, :matrix, :concurrency, :name_explicit, keyword_init: true)
+    Configuration = Struct.new(:name, :before_all, :steps, :after_all, :env, :matrix, :concurrency, :name_explicit,
+                               keyword_init: true)
 
     def initialize(path: DEFAULT_CONFIG_FILE, plugin_registry: Plugin.registry)
       @path = path
@@ -117,17 +118,13 @@ module MiniCi
     end
 
     def build_steps(steps_data)
-      if steps_data.nil?
-        raise ConfigurationError, 'Invalid pipeline configuration: missing "steps"'
-      end
+      raise ConfigurationError, 'Invalid pipeline configuration: missing "steps"' if steps_data.nil?
 
       unless steps_data.is_a?(Array)
         raise ConfigurationError, 'Invalid pipeline configuration: "steps" must be an array'
       end
 
-      if steps_data.empty?
-        raise ConfigurationError, 'Invalid pipeline configuration: "steps" must not be empty'
-      end
+      raise ConfigurationError, 'Invalid pipeline configuration: "steps" must not be empty' if steps_data.empty?
 
       steps_data.each_with_index.map do |step_data, index|
         build_step(step_data, "step #{index + 1}", default_when_policy: :success)
@@ -137,9 +134,7 @@ module MiniCi
     def build_hooks(hooks_data, key)
       return [] if hooks_data.nil?
 
-      unless hooks_data.is_a?(Array)
-        raise ConfigurationError, "Invalid pipeline configuration: #{key} must be an array"
-      end
+      raise ConfigurationError, "Invalid pipeline configuration: #{key} must be an array" unless hooks_data.is_a?(Array)
 
       hooks_data.each_with_index.map do |hook_data, index|
         default_when_policy = key == "after_all" ? :always : :success
@@ -162,9 +157,7 @@ module MiniCi
         raise ConfigurationError, "Invalid pipeline configuration: #{label} cannot define both run and uses"
       end
 
-      unless has_run || has_uses
-        raise ConfigurationError, "Invalid pipeline configuration: #{label} is missing \"run\""
-      end
+      raise ConfigurationError, "Invalid pipeline configuration: #{label} is missing \"run\"" unless has_run || has_uses
 
       name = step_data["name"]
       command = step_data["run"] if has_run
@@ -218,7 +211,8 @@ module MiniCi
       end
 
       unless @plugin_registry.item_type(value)
-        raise ConfigurationError, %(Invalid pipeline configuration: #{label} references unknown plugin item type "#{value}")
+        raise ConfigurationError,
+              %(Invalid pipeline configuration: #{label} references unknown plugin item type "#{value}")
       end
 
       value
@@ -260,9 +254,10 @@ module MiniCi
         raise ConfigurationError, "Invalid pipeline configuration: #{label} cache must be a mapping"
       end
 
-      unknown_fields = cache_data.keys - ["key", "paths", "restore_keys", "save_when"]
+      unknown_fields = cache_data.keys - %w[key paths restore_keys save_when]
       unless unknown_fields.empty?
-        raise ConfigurationError, "Invalid pipeline configuration: #{label} cache contains unknown field #{unknown_fields.first.inspect}"
+        raise ConfigurationError,
+              "Invalid pipeline configuration: #{label} cache contains unknown field #{unknown_fields.first.inspect}"
       end
 
       unless cache_data.key?("key")
@@ -306,9 +301,10 @@ module MiniCi
         raise ConfigurationError, "Invalid pipeline configuration: #{label} artifacts must be a mapping"
       end
 
-      unknown_fields = artifact_data.keys - ["paths", "when"]
+      unknown_fields = artifact_data.keys - %w[paths when]
       unless unknown_fields.empty?
-        raise ConfigurationError, "Invalid pipeline configuration: #{label} artifacts contains unknown field #{unknown_fields.first.inspect}"
+        raise ConfigurationError,
+              "Invalid pipeline configuration: #{label} artifacts contains unknown field #{unknown_fields.first.inspect}"
       end
 
       unless artifact_data.key?("paths")
@@ -326,7 +322,8 @@ module MiniCi
 
       when_policy = artifact_data.fetch("when", "always")
       unless when_policy.is_a?(String) && ArtifactDefinition::VALID_POLICIES.include?(when_policy.to_sym)
-        raise ConfigurationError, "Invalid pipeline configuration: #{label} artifacts when must be one of success, failure, always"
+        raise ConfigurationError,
+              "Invalid pipeline configuration: #{label} artifacts when must be one of success, failure, always"
       end
 
       ArtifactDefinition.new(paths: paths, when_policy: when_policy.to_sym)
@@ -334,12 +331,14 @@ module MiniCi
 
     def validate_artifact_path(path, label, index)
       unless path.is_a?(String) && !path.strip.empty?
-        raise ConfigurationError, "Invalid pipeline configuration: #{label} artifact path #{index + 1} must be a non-empty string"
+        raise ConfigurationError,
+              "Invalid pipeline configuration: #{label} artifact path #{index + 1} must be a non-empty string"
       end
 
-      if Pathname.new(path).absolute? || path.split(/[\\\/]+/).include?("..")
-        raise ConfigurationError, "Invalid pipeline configuration: #{label} artifact path #{index + 1} must stay inside the workspace"
-      end
+      return unless Pathname.new(path).absolute? || path.split(%r{[\\/]+}).include?("..")
+
+      raise ConfigurationError,
+            "Invalid pipeline configuration: #{label} artifact path #{index + 1} must stay inside the workspace"
     end
 
     def build_when_policy(step_data, label, default_when_policy)
@@ -363,9 +362,7 @@ module MiniCi
         raise ConfigurationError, "Invalid pipeline configuration: #{label} if expression must be a string"
       end
 
-      if value.strip.empty?
-        raise ConfigurationError, "Invalid pipeline configuration: #{label} if expression is empty"
-      end
+      raise ConfigurationError, "Invalid pipeline configuration: #{label} if expression is empty" if value.strip.empty?
 
       ConditionParser.new.parse(value)
     rescue ArgumentError => e
@@ -379,9 +376,7 @@ module MiniCi
         raise ConfigurationError, "Invalid pipeline configuration: matrix must be a mapping"
       end
 
-      if matrix_data.empty?
-        raise ConfigurationError, "Invalid pipeline configuration: matrix must not be empty"
-      end
+      raise ConfigurationError, "Invalid pipeline configuration: matrix must not be empty" if matrix_data.empty?
 
       dimensions = matrix_data.each_with_object({}) do |(key, values), matrix|
         matrix_key = validate_matrix_key(key)
@@ -390,7 +385,8 @@ module MiniCi
 
       definition = MatrixDefinition.new(dimensions)
       if definition.total_combination_count > MatrixExpander::MAX_JOBS
-        raise ConfigurationError, "Invalid pipeline configuration: matrix expands to #{definition.total_combination_count} jobs, exceeding the limit of #{MatrixExpander::MAX_JOBS}"
+        raise ConfigurationError,
+              "Invalid pipeline configuration: matrix expands to #{definition.total_combination_count} jobs, exceeding the limit of #{MatrixExpander::MAX_JOBS}"
       end
 
       definition
@@ -400,9 +396,7 @@ module MiniCi
       return ConcurrencyConfig.new(nil) unless data.key?("concurrency")
 
       value = data["concurrency"]
-      if value.nil?
-        raise ConfigurationError, "Invalid pipeline configuration: concurrency must be a positive integer"
-      end
+      raise ConfigurationError, "Invalid pipeline configuration: concurrency must be a positive integer" if value.nil?
 
       ConcurrencyConfig.new(value)
     end
@@ -417,16 +411,19 @@ module MiniCi
 
     def build_matrix_values(key, values)
       unless values.is_a?(Array)
-        raise ConfigurationError, "Invalid pipeline configuration: matrix value list for #{key.inspect} must be an array"
+        raise ConfigurationError,
+              "Invalid pipeline configuration: matrix value list for #{key.inspect} must be an array"
       end
 
       if values.empty?
-        raise ConfigurationError, "Invalid pipeline configuration: matrix value list for #{key.inspect} must not be empty"
+        raise ConfigurationError,
+              "Invalid pipeline configuration: matrix value list for #{key.inspect} must not be empty"
       end
 
       values.each_with_index.map do |value, index|
         if value.nil? || value.is_a?(Array) || value.is_a?(Hash)
-          raise ConfigurationError, "Invalid pipeline configuration: matrix value #{index + 1} for #{key.inspect} must be a scalar"
+          raise ConfigurationError,
+                "Invalid pipeline configuration: matrix value #{index + 1} for #{key.inspect} must be a scalar"
         end
 
         value.to_s
@@ -436,9 +433,7 @@ module MiniCi
     def build_env(env_data, label)
       return {}.freeze if env_data.nil?
 
-      unless env_data.is_a?(Hash)
-        raise ConfigurationError, "Invalid pipeline configuration: #{label} must be a mapping"
-      end
+      raise ConfigurationError, "Invalid pipeline configuration: #{label} must be a mapping" unless env_data.is_a?(Hash)
 
       env_data.each_with_object({}) do |(key, value), env|
         variable_name = validate_env_name(key, label)
@@ -448,7 +443,8 @@ module MiniCi
 
     def validate_env_name(key, label)
       unless key.is_a?(String)
-        raise ConfigurationError, "Invalid pipeline configuration: #{label} contains a non-string environment variable name"
+        raise ConfigurationError,
+              "Invalid pipeline configuration: #{label} contains a non-string environment variable name"
       end
 
       if key.strip.empty?
@@ -464,7 +460,8 @@ module MiniCi
       end
 
       unless key.match?(ENV_NAME_PATTERN)
-        raise ConfigurationError, "Invalid pipeline configuration: #{label} variable #{key.inspect} must use a valid environment variable name"
+        raise ConfigurationError,
+              "Invalid pipeline configuration: #{label} variable #{key.inspect} must use a valid environment variable name"
       end
 
       key
@@ -472,17 +469,20 @@ module MiniCi
 
     def validate_env_value(variable_name, value, label)
       if value.nil?
-        raise ConfigurationError, "Invalid pipeline configuration: #{label} variable #{variable_name.inspect} must not be null"
+        raise ConfigurationError,
+              "Invalid pipeline configuration: #{label} variable #{variable_name.inspect} must not be null"
       end
 
       if value.is_a?(Array) || value.is_a?(Hash)
-        raise ConfigurationError, "Invalid pipeline configuration: #{label} variable #{variable_name.inspect} must contain a scalar value"
+        raise ConfigurationError,
+              "Invalid pipeline configuration: #{label} variable #{variable_name.inspect} must contain a scalar value"
       end
 
       string_value = value.to_s
 
       if string_value.include?("\0")
-        raise ConfigurationError, "Invalid pipeline configuration: #{label} variable #{variable_name.inspect} contains a null byte"
+        raise ConfigurationError,
+              "Invalid pipeline configuration: #{label} variable #{variable_name.inspect} contains a null byte"
       end
 
       string_value

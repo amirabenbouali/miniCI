@@ -10,7 +10,8 @@ module MiniCi
                 :warnings,
                 :errors
 
-    def initialize(requested_paths:, matched_sources: [], copied_files: [], copied_directories: [], destination: nil, warnings: [], errors: [])
+    def initialize(requested_paths:, matched_sources: [], copied_files: [], copied_directories: [], destination: nil,
+                   warnings: [], errors: [])
       @requested_paths = requested_paths.dup.freeze
       @matched_sources = matched_sources.dup.freeze
       @copied_files = copied_files.dup.freeze

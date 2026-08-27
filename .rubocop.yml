@@ -1,0 +1,66 @@
+plugins:
+  - rubocop-rspec
+
+inherit_from:
+  - .rubocop_todo.yml
+
+AllCops:
+  NewCops: enable
+  TargetRubyVersion: 3.1
+  SuggestExtensions: false
+  Exclude:
+    - "pkg/**/*"
+    - "coverage/**/*"
+    - "tmp/**/*"
+    - "vendor/**/*"
+    - ".mini-ci/**/*"
+    - "matrix-artifacts/**/*"
+
+# The codebase consistently uses double-quoted strings with
+# frozen_string_literal, so hold new code to that instead of the
+# single-quoted default.
+Style/StringLiterals:
+  EnforcedStyle: double_quotes
+
+Style/StringLiteralsInInterpolation:
+  EnforcedStyle: double_quotes
+
+# No class/module doc comments anywhere in this codebase by convention;
+# requiring them here would just mean boilerplate one-liners.
+Style/Documentation:
+  Enabled: false
+
+# Dev dependencies are declared in the gemspec (spec.add_development_dependency),
+# not the Gemfile, throughout this project.
+Gemspec/DevelopmentDependencies:
+  Enabled: false
+
+# Specs favor instance variables for shared setup across before/it blocks,
+# and group several small related classes under one string-described example
+# group (e.g. "matrix result models"). Both are deliberate here.
+RSpec/InstanceVariable:
+  Enabled: false
+
+RSpec/DescribeClass:
+  Enabled: false
+
+RSpec/SpecFilePathFormat:
+  Enabled: false
+
+# Test doubles/fakes intentionally mirror the real method signatures they
+# stand in for, including arguments they don't need to use.
+RSpec/LeakyConstantDeclaration:
+  Enabled: false
+
+Lint/ConstantDefinitionInBlock:
+  Exclude:
+    - "spec/**/*"
+
+# CLI/dashboard integration specs assert several observable effects of a
+# single pipeline/HTTP run per example; splitting those into one-expectation
+# examples would multiply setup without adding coverage.
+RSpec/ExampleLength:
+  Enabled: false
+
+RSpec/MultipleExpectations:
+  Enabled: false

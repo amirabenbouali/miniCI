@@ -9,4 +9,3 @@ MiniCi::Plugin.register(
     raise "intentional callback failure"
   end
 end
-

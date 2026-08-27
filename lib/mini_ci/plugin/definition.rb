@@ -4,27 +4,28 @@ module MiniCi
   module Plugin
     class Definition
       NAME_PATTERN = /\A[a-z0-9][a-z0-9_-]*\z/
-      CALLBACK_EVENTS = [
-        :before_run,
-        :after_run,
-        :before_pipeline,
-        :after_pipeline,
-        :before_matrix_job,
-        :after_matrix_job,
-        :before_item,
-        :after_item,
-        :before_cache_restore,
-        :after_cache_restore,
-        :before_cache_save,
-        :after_cache_save,
-        :before_artifact_collection,
-        :after_artifact_collection,
-        :after_report
+      CALLBACK_EVENTS = %i[
+        before_run
+        after_run
+        before_pipeline
+        after_pipeline
+        before_matrix_job
+        after_matrix_job
+        before_item
+        after_item
+        before_cache_restore
+        after_cache_restore
+        before_cache_save
+        after_cache_save
+        before_artifact_collection
+        after_artifact_collection
+        after_report
       ].freeze
 
       attr_reader :name, :version, :description, :author, :homepage, :api_version, :source_path
 
-      def initialize(name:, version:, description: nil, author: nil, homepage: nil, api_version: PLUGIN_API_VERSION, source_path: nil)
+      def initialize(name:, version:, description: nil, author: nil, homepage: nil, api_version: PLUGIN_API_VERSION,
+                     source_path: nil)
         @name = validate_name(name)
         @version = validate_version(version, @name)
         @description = description
@@ -107,7 +108,8 @@ module MiniCi
 
       def validate_version(value, plugin_name)
         unless value.is_a?(String) && !value.strip.empty?
-          raise PluginRegistrationError, %(Plugin registration failed: plugin "#{plugin_name}" version must be a non-empty string)
+          raise PluginRegistrationError,
+                %(Plugin registration failed: plugin "#{plugin_name}" version must be a non-empty string)
         end
 
         value
@@ -116,7 +118,8 @@ module MiniCi
       def validate_api_version(value, plugin_name)
         api = value || PLUGIN_API_VERSION
         unless api.to_s == PLUGIN_API_VERSION
-          raise PluginRegistrationError, %(Plugin "#{plugin_name}" requires API version #{api}, but Mini CI supports version #{PLUGIN_API_VERSION})
+          raise PluginRegistrationError,
+                %(Plugin "#{plugin_name}" requires API version #{api}, but Mini CI supports version #{PLUGIN_API_VERSION})
         end
 
         api.to_s
@@ -128,4 +131,3 @@ module MiniCi
     end
   end
 end
-

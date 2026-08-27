@@ -90,7 +90,7 @@ RSpec.describe MiniCi::CommandRunner do
   it "allows provided variables to override inherited variables" do
     path = temp_file
 
-    original = ENV["MINI_CI_OVERRIDE_TEST"]
+    original = ENV.fetch("MINI_CI_OVERRIDE_TEST", nil)
     ENV["MINI_CI_OVERRIDE_TEST"] = "parent"
 
     described_class.new.run(

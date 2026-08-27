@@ -71,7 +71,8 @@ RSpec.describe MiniCi::Pipeline do
   end
 
   def fake_result(success:, exit_status:, duration: 0.1, timed_out: false, timeout: nil)
-    FakeCommandResult.new(success?: success, exit_status: exit_status, duration: duration, timed_out?: timed_out, timeout: timeout)
+    FakeCommandResult.new(success?: success, exit_status: exit_status, duration: duration, timed_out?: timed_out,
+                          timeout: timeout)
   end
 
   def condition(expression)
@@ -173,7 +174,7 @@ RSpec.describe MiniCi::Pipeline do
       clock: fixed_clock
     ).run
 
-    expect(result.step_results.map { |step_result| step_result.step.name }).to eq(["First", "Second"])
+    expect(result.step_results.map { |step_result| step_result.step.name }).to eq(%w[First Second])
   end
 
   it "does not execute steps after a failure" do
@@ -428,7 +429,8 @@ RSpec.describe MiniCi::Pipeline do
 
   it "preserves timeout results" do
     runner = FakeCommandRunner.new([
-                                     fake_result(success: false, exit_status: nil, duration: 1.01, timed_out: true, timeout: 1)
+                                     fake_result(success: false, exit_status: nil, duration: 1.01, timed_out: true,
+                                                 timeout: 1)
                                    ])
 
     result = described_class.new(
@@ -619,7 +621,7 @@ RSpec.describe MiniCi::Pipeline do
       clock: fixed_clock
     ).run
 
-    expect(runner.commands).to eq(["prepare", "main", "cleanup"])
+    expect(runner.commands).to eq(%w[prepare main cleanup])
     expect(result.before_all_results.first).to be_before_all
     expect(result.step_results.first).to be_normal_step
     expect(result.after_all_results.first).to be_after_all
@@ -645,7 +647,7 @@ RSpec.describe MiniCi::Pipeline do
       clock: fixed_clock
     ).run
 
-    expect(runner.commands).to eq(["pass", "fail", "cleanup"])
+    expect(runner.commands).to eq(%w[pass fail cleanup])
     expect(result.skipped_main_step_count).to eq(1)
     expect(result.primary_failure.step.name).to eq("Fail")
   end
@@ -669,7 +671,7 @@ RSpec.describe MiniCi::Pipeline do
       clock: fixed_clock
     ).run
 
-    expect(runner.commands).to eq(["prepare", "cleanup"])
+    expect(runner.commands).to eq(%w[prepare cleanup])
     expect(result.skipped_main_step_count).to eq(1)
     expect(result.primary_failure.step.name).to eq("Prepare")
   end
@@ -693,7 +695,7 @@ RSpec.describe MiniCi::Pipeline do
       clock: fixed_clock
     ).run
 
-    expect(runner.commands).to eq(["main", "cleanup-fail", "cleanup-final"])
+    expect(runner.commands).to eq(%w[main cleanup-fail cleanup-final])
     expect(result).to be_failed
     expect(result.cleanup_failures.map { |failure| failure.step.name }).to eq(["Fail cleanup"])
   end
@@ -715,7 +717,7 @@ RSpec.describe MiniCi::Pipeline do
     ).run
 
     expect(result).to be_success
-    expect(runner.commands).to eq(["prepare", "prepare", "main"])
+    expect(runner.commands).to eq(%w[prepare prepare main])
     expect(runner.timeouts).to eq([1, 1, nil])
   end
 
@@ -759,7 +761,7 @@ RSpec.describe MiniCi::Pipeline do
       clock: fixed_clock
     ).run
 
-    expect(runner.commands).to eq(["fail", "always"])
+    expect(runner.commands).to eq(%w[fail always])
     expect(result.step_results[1]).to be_skipped
     expect(result.step_results[1].skip_reason).to eq(:previous_failure)
   end
@@ -782,7 +784,7 @@ RSpec.describe MiniCi::Pipeline do
       clock: fixed_clock
     ).run
 
-    expect(runner.commands).to eq(["fail", "after"])
+    expect(runner.commands).to eq(%w[fail after])
     expect(result.step_results.first.skip_reason).to eq(:no_previous_failure)
   end
 
@@ -872,7 +874,7 @@ RSpec.describe MiniCi::Pipeline do
       clock: fixed_clock
     ).run
 
-    expect(runner.commands).to eq(["fail", "handle"])
+    expect(runner.commands).to eq(%w[fail handle])
     expect(result.step_results.last.skip_reason).to eq(:previous_failure)
   end
 
@@ -915,7 +917,7 @@ RSpec.describe MiniCi::Pipeline do
       clock: fixed_clock
     ).run
 
-    expect(runner.commands).to eq(["fail", "cleanup"])
+    expect(runner.commands).to eq(%w[fail cleanup])
   end
 
   it "honors explicit cleanup conditions" do
@@ -947,7 +949,8 @@ RSpec.describe MiniCi::Pipeline do
     described_class.new(
       name: "Conditions",
       steps: [
-        MiniCi::Step.new(name: "Never", command: "never", when_policy: :never, when_policy_explicit: true, retries: 2, retry_delay: 1),
+        MiniCi::Step.new(name: "Never", command: "never", when_policy: :never, when_policy_explicit: true, retries: 2,
+                         retry_delay: 1),
         step("Run", "run")
       ],
       command_runner: runner,

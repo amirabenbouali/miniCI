@@ -26,7 +26,8 @@ module MiniCi
         @plugins_by_name[plugin.name] = plugin
         plugin.item_types.each do |item_type|
           if @item_types.key?(item_type.name)
-            raise PluginRegistrationError, %(Plugin registration failed: item type "#{item_type.name}" is already registered)
+            raise PluginRegistrationError,
+                  %(Plugin registration failed: item type "#{item_type.name}" is already registered)
           end
 
           @item_types[item_type.name] = item_type
@@ -98,4 +99,3 @@ module MiniCi
     end
   end
 end
-

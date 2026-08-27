@@ -30,9 +30,7 @@ module MiniCi
         case value
         when Hash
           value.each_with_object({}) do |(key, child), output|
-            unless key.is_a?(String)
-              raise PluginError, "plugin metadata keys must be strings"
-            end
+            raise PluginError, "plugin metadata keys must be strings" unless key.is_a?(String)
 
             output[key] = validate_value(child)
           end
@@ -58,4 +56,3 @@ module MiniCi
     end
   end
 end
-

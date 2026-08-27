@@ -4,7 +4,7 @@ require "pathname"
 
 module MiniCi
   class ArtifactDefinition
-    VALID_POLICIES = [:success, :failure, :always].freeze
+    VALID_POLICIES = %i[success failure always].freeze
 
     attr_reader :paths, :when_policy
 
@@ -29,9 +29,7 @@ module MiniCi
     private
 
     def validate_paths(paths)
-      unless paths.is_a?(Array) && !paths.empty?
-        raise ArgumentError, "Artifact paths must be a non-empty array"
-      end
+      raise ArgumentError, "Artifact paths must be a non-empty array" unless paths.is_a?(Array) && !paths.empty?
 
       paths.map do |path|
         validate_path(path)
@@ -39,11 +37,9 @@ module MiniCi
     end
 
     def validate_path(path)
-      unless path.is_a?(String) && !path.strip.empty?
-        raise ArgumentError, "Artifact path must be a non-empty string"
-      end
+      raise ArgumentError, "Artifact path must be a non-empty string" unless path.is_a?(String) && !path.strip.empty?
 
-      if Pathname.new(path).absolute? || path.split(/[\\\/]+/).include?("..")
+      if Pathname.new(path).absolute? || path.split(%r{[\\/]+}).include?("..")
         raise ArgumentError, "Artifact path must stay inside the workspace"
       end
 

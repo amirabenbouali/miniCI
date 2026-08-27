@@ -52,7 +52,7 @@ RSpec.describe MiniCi::ConditionParser do
   end
 
   it "rejects shell syntax" do
-    expect { parser.parse('$(echo true)') }.to raise_error(ArgumentError, /unsupported if expression/)
+    expect { parser.parse("$(echo true)") }.to raise_error(ArgumentError, /unsupported if expression/)
   end
 
   it "rejects logical expressions" do

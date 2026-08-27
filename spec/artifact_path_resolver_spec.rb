@@ -17,7 +17,9 @@ RSpec.describe MiniCi::ArtifactPathResolver do
     expect(result.errors).to be_empty
     expect(result.warnings).to be_empty
     expect(result.sources.length).to eq(3)
-    expect(result.sources.map { |path| resolver.relative_path_for(path) }).to include("reports/results.xml", "logs", "logs/a.log")
+    expect(result.sources.map do |path|
+      resolver.relative_path_for(path)
+    end).to include("reports/results.xml", "logs", "logs/a.log")
   ensure
     FileUtils.remove_entry(directory) if directory
   end

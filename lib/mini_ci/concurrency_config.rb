@@ -33,7 +33,8 @@ module MiniCi
       end
 
       if value > MAX_CONCURRENCY
-        raise ConfigurationError, "Invalid pipeline configuration: concurrency #{value} exceeds the maximum of #{MAX_CONCURRENCY}"
+        raise ConfigurationError,
+              "Invalid pipeline configuration: concurrency #{value} exceeds the maximum of #{MAX_CONCURRENCY}"
       end
 
       value

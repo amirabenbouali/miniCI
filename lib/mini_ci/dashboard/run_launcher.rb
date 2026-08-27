@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require "stringio"
-require "thread"
 
 module MiniCi
   module Dashboard
@@ -50,7 +49,8 @@ module MiniCi
         return if cancelled?(job[:run_id])
 
         @mutex.synchronize { @running[job[:run_id]] = :running }
-        @repository.mark_running(job[:run_id], pipeline_name: File.basename(job[:pipeline_file]), configured_concurrency: job[:concurrency] || "automatic")
+        @repository.mark_running(job[:run_id], pipeline_name: File.basename(job[:pipeline_file]),
+                                               configured_concurrency: job[:concurrency] || "automatic")
         output = @repository.output_writer(job[:run_id])
         args = ["run", job[:pipeline_file], "--no-history"]
         args.concat(["--concurrency", job[:concurrency]]) if job[:concurrency] && !job[:concurrency].empty?
@@ -59,7 +59,11 @@ module MiniCi
         job[:plugin_files].each { |path| args.concat(["--plugin", path]) }
 
         exit_code = MiniCi::CLI.new(arguments: args, output: output, error_output: output).call
-        status = cancelled?(job[:run_id]) ? "cancelled" : (exit_code.zero? ? "passed" : "failed")
+        status = if cancelled?(job[:run_id])
+                   "cancelled"
+                 else
+                   (exit_code.zero? ? "passed" : "failed")
+                 end
         @repository.finish(
           job[:run_id],
           {
@@ -93,4 +97,3 @@ module MiniCi
     end
   end
 end
-

@@ -14,9 +14,7 @@ module MiniCi
       raise ArgumentError, "Matrix must contain at least one dimension" if definition.empty?
 
       count = definition.total_combination_count
-      if count > @max_jobs
-        raise ArgumentError, "matrix expands to #{count} jobs, exceeding the limit of #{@max_jobs}"
-      end
+      raise ArgumentError, "matrix expands to #{count} jobs, exceeding the limit of #{@max_jobs}" if count > @max_jobs
 
       combinations_for(definition.dimensions.to_a)
     end

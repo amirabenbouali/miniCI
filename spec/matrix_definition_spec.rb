@@ -18,8 +18,8 @@ RSpec.describe MiniCi::MatrixDefinition do
   end
 
   it "converts values to strings" do
-    expect(definition.dimensions["debug"]).to eq(["true", "false"])
-    expect(definition.dimensions["shard"]).to eq(["1", "2"])
+    expect(definition.dimensions["debug"]).to eq(%w[true false])
+    expect(definition.dimensions["shard"]).to eq(%w[1 2])
   end
 
   it "protects internal state" do

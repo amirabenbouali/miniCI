@@ -4,9 +4,11 @@ require_relative "attempt_result"
 
 module MiniCi
   class StepResult
-    attr_reader :step, :attempts, :duration, :started_at, :finished_at, :category, :skip_reason, :artifact_result, :cache_result, :plugin_item_result, :plugin_failure
+    attr_reader :step, :attempts, :duration, :started_at, :finished_at, :category, :skip_reason, :artifact_result,
+                :cache_result, :plugin_item_result, :plugin_failure
 
-    def initialize(step:, attempts: nil, success: nil, exit_status: nil, duration: nil, timed_out: false, timeout: nil, started_at: nil, finished_at: nil, category: :step, skipped: false, skip_reason: nil, artifact_result: nil, cache_result: nil, plugin_item_result: nil, plugin_failure: nil)
+    def initialize(step:, attempts: nil, success: nil, exit_status: nil, duration: nil, timed_out: false, timeout: nil,
+                   started_at: nil, finished_at: nil, category: :step, skipped: false, skip_reason: nil, artifact_result: nil, cache_result: nil, plugin_item_result: nil, plugin_failure: nil)
       @step = step
       @skip_reason = skip_reason
       @artifact_result = artifact_result
@@ -16,16 +18,16 @@ module MiniCi
       @attempts = if skipped
                     []
                   else
-                    (attempts || [
-        AttemptResult.new(
-          attempt_number: 1,
-          success: success,
-          exit_status: exit_status,
-          duration: duration,
-          timed_out: timed_out,
-          timeout: timeout
-        )
-      ])
+                    attempts || [
+                      AttemptResult.new(
+                        attempt_number: 1,
+                        success: success,
+                        exit_status: exit_status,
+                        duration: duration,
+                        timed_out: timed_out,
+                        timeout: timeout
+                      )
+                    ]
                   end.dup.freeze
       @duration = duration || attempts_total_duration
       @started_at = started_at
@@ -128,13 +130,13 @@ module MiniCi
     private
 
     def validate_category(category)
-      return category if [:before_all, :step, :after_all].include?(category)
+      return category if %i[before_all step after_all].include?(category)
 
       raise ArgumentError, "Step result category must be :before_all, :step, or :after_all"
     end
 
     def validate_skip_reason
-      return if [:previous_failure, :no_previous_failure, :when_never, :if_condition_false].include?(skip_reason)
+      return if %i[previous_failure no_previous_failure when_never if_condition_false].include?(skip_reason)
 
       raise ArgumentError, "Skipped step result requires a valid skip reason"
     end

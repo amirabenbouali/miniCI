@@ -29,4 +29,3 @@ module MiniCi
     end
   end
 end
-
