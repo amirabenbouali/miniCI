@@ -5,6 +5,16 @@ on:
   pull_request:
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+      - run: bundle exec rake rubocop
+
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -23,3 +33,7 @@ jobs:
       - run: bundle exec rake syntax
       - run: bundle exec rspec --format progress
       - run: gem build mini_ci.gemspec
+      # Regression guard for locale-dependent encoding bugs: without a UTF-8
+      # locale, Encoding.default_external falls back to US-ASCII and any
+      # code that reads raw bytes without pinning an encoding can crash.
+      - run: LANG=C LC_ALL=C bundle exec rspec --format progress
