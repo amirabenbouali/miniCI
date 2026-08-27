@@ -47,7 +47,7 @@ module MiniCi
       content = File.read(file_path, encoding: Encoding::UTF_8)
       reject_duplicate_yaml_keys(content, file_path)
       YAML.safe_load(content, aliases: false)
-    rescue Psych::SyntaxError, Psych::AliasesNotEnabled, Psych::DisallowedClass => e
+    rescue Psych::Exception => e
       raise ConfigurationError, "Invalid YAML in #{File.basename(file_path)}: #{e.message}"
     end
 

@@ -190,7 +190,11 @@ RSpec.describe MiniCi::CommandRunner do
 
     result = nil
     with_default_external_encoding("US-ASCII") do
-      result = described_class.new(stdout: stdout, stderr: stdout).run("printf '\\xE2\\x9C\\x93 done\\n'")
+      # Built via Ruby's own byte packing rather than a shell printf escape,
+      # since /bin/sh's printf builtin does not agree on \xHH support across
+      # shells (e.g. dash, which is /bin/sh on Ubuntu CI runners, does not).
+      command = %(ruby -e 'STDOUT.write([0xE2, 0x9C, 0x93].pack("C*")); STDOUT.write(" done")')
+      result = described_class.new(stdout: stdout, stderr: stdout).run(command)
     end
 
     expect(result).to be_success
