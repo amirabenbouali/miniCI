@@ -2,7 +2,12 @@
 
 ## Unreleased
 
-- Release preparation changes after v1.0.0 will be listed here.
+- Fixed crashes running pipelines (especially matrix jobs) outside a UTF-8 locale, where non-ASCII output such as the `✓`/`✗` status symbols or unicode job and pipeline names could raise internal errors.
+- Fixed run history, cache metadata, and dashboard views failing to read back records containing non-ASCII content under the same conditions.
+- Fixed YAML validation error handling breaking entirely on Ruby versions whose Psych library doesn't define `Psych::AliasesNotEnabled`.
+- Fixed two dead branches with no observable effect in the CLI and dashboard.
+- Fixed CI failing on Ruby 3.1/3.2 due to incompatible transitive dependency and Bundler versions.
+- Added RuboCop static analysis, wired into `rake` and CI, and a CI check that runs the test suite under a non-UTF-8 locale.
 
 ## 1.0.0
 
