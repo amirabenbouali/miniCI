@@ -16,7 +16,7 @@ module MiniCi
         paths = []
         paths.concat(discover_default) if default
         directories.each { |directory| paths.concat(discover_directory(directory, explicit: true)) }
-        files.each { |file| paths << validate_file(file, explicit: true) }
+        files.each { |file| paths << validate_file(file) }
         paths.each { |path| load_file(path) }
         @registry.plugins
       end
@@ -30,12 +30,8 @@ module MiniCi
 
       def discover_directory(directory, explicit:)
         expanded = File.expand_path(directory)
-        unless Dir.exist?(expanded)
-          raise PluginLoadError, "Plugin directory #{directory} was not found"
-        end
-        if File.file?(expanded)
-          raise PluginLoadError, "#{directory} is a file, not a plugin directory"
-        end
+        raise PluginLoadError, "Plugin directory #{directory} was not found" unless Dir.exist?(expanded)
+        raise PluginLoadError, "#{directory} is a file, not a plugin directory" if File.file?(expanded)
 
         root = Pathname.new(expanded).realpath
         Dir.glob(File.join(expanded, "**", "*.rb")).sort.map do |path|
@@ -48,17 +44,11 @@ module MiniCi
         end
       end
 
-      def validate_file(file, explicit:)
+      def validate_file(file)
         expanded = File.expand_path(file)
-        unless File.exist?(expanded)
-          raise PluginLoadError, "Plugin file #{file} was not found"
-        end
-        if File.directory?(expanded)
-          raise PluginLoadError, "#{file} is a directory, not a plugin file"
-        end
-        unless File.extname(expanded) == ".rb"
-          raise PluginLoadError, "Plugin file #{file} must be a Ruby .rb file"
-        end
+        raise PluginLoadError, "Plugin file #{file} was not found" unless File.exist?(expanded)
+        raise PluginLoadError, "#{file} is a directory, not a plugin file" if File.directory?(expanded)
+        raise PluginLoadError, "Plugin file #{file} must be a Ruby .rb file" unless File.extname(expanded) == ".rb"
 
         validate_readable_ruby_file(file, Pathname.new(expanded).realpath)
       end
@@ -78,9 +68,7 @@ module MiniCi
       private
 
       def validate_readable_ruby_file(display_path, canonical)
-        unless File.readable?(canonical.to_s)
-          raise PluginLoadError, "Plugin file #{display_path} is not readable"
-        end
+        raise PluginLoadError, "Plugin file #{display_path} is not readable" unless File.readable?(canonical.to_s)
 
         canonical.to_s
       end
@@ -91,4 +79,3 @@ module MiniCi
     end
   end
 end
-

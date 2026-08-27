@@ -93,7 +93,6 @@ module MiniCi
           case status.to_s
           when "passed" then "check"
           when "failed", "internal_error", "timed_out" then "fail"
-          when "running", "queued", "pending" then "clock"
           when "cancelled" then "cancel"
           when "skipped" then "skip"
           else "clock"
@@ -139,7 +138,7 @@ module MiniCi
 
       get "/runs/:run_id/output" do
         @run = repository.load(params[:run_id])
-        @output = File.read(repository.output_path(params[:run_id]))
+        @output = File.read(repository.output_path(params[:run_id]), encoding: Encoding::UTF_8).scrub
         @page_title = "Output log"
         erb :output
       rescue MiniCi::Error, SystemCallError => e
@@ -241,8 +240,9 @@ module MiniCi
           @page_title = "Artifacts"
           erb :artifacts
         else
-          content_type text_file?(safe_path) ? "text/plain" : "application/octet-stream"
-          File.read(safe_path)
+          is_text = text_file?(safe_path)
+          content_type is_text ? "text/plain" : "application/octet-stream"
+          is_text ? File.read(safe_path, encoding: Encoding::UTF_8).scrub : File.binread(safe_path)
         end
       rescue MiniCi::Error, SystemCallError => e
         @page_title = "Error"
@@ -252,7 +252,7 @@ module MiniCi
       end
 
       def text_file?(path)
-        File.size(path) < 512 * 1024 && File.read(path, 1024).valid_encoding?
+        File.size(path) < 512 * 1024 && File.read(path, 1024, encoding: Encoding::UTF_8).valid_encoding?
       rescue SystemCallError
         false
       end

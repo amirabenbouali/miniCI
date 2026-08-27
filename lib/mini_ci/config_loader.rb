@@ -37,15 +37,13 @@ module MiniCi
     def locate_file
       expanded = File.expand_path(@path)
 
-      unless File.file?(expanded)
-        raise FileNotFoundError, "#{@path} was not found"
-      end
+      raise FileNotFoundError, "#{@path} was not found" unless File.file?(expanded)
 
       expanded
     end
 
     def parse_yaml(file_path)
-      content = File.read(file_path)
+      content = File.read(file_path, encoding: Encoding::UTF_8)
       reject_duplicate_yaml_keys(content, file_path)
       YAML.safe_load(content, aliases: false)
     rescue Psych::SyntaxError, Psych::AliasesNotEnabled, Psych::DisallowedClass => e

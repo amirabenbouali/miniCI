@@ -109,14 +109,14 @@ RSpec.describe MiniCi::CommandRunner do
   end
 
   it "does not mutate the parent Ruby process environment" do
-    original = ENV["MINI_CI_PARENT_TEST"]
+    original = ENV.fetch("MINI_CI_PARENT_TEST", nil)
 
     described_class.new.run(
       "ruby -e 'exit 0'",
       env: { "MINI_CI_PARENT_TEST" => "child" }
     )
 
-    expect(ENV["MINI_CI_PARENT_TEST"]).to eq(original)
+    expect(ENV.fetch("MINI_CI_PARENT_TEST", nil)).to eq(original)
   end
 
   it "preserves empty-string values" do
@@ -181,5 +181,19 @@ RSpec.describe MiniCi::CommandRunner do
 
     expect(result).to be_timed_out
     expect { Process.wait(-1, Process::WNOHANG) }.to raise_error(Errno::ECHILD)
+  end
+
+  it "captures non-ASCII command output through a non-redirectable target without raising" do
+    # StringIO has no #fileno, so this exercises the IO.pipe/readpartial
+    # streaming path rather than direct fd redirection.
+    stdout = StringIO.new
+
+    result = nil
+    with_default_external_encoding("US-ASCII") do
+      result = described_class.new(stdout: stdout, stderr: stdout).run("printf '\\xE2\\x9C\\x93 done\\n'")
+    end
+
+    expect(result).to be_success
+    expect(stdout.string).to include("✓ done")
   end
 end

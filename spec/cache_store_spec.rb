@@ -38,6 +38,25 @@ RSpec.describe MiniCi::CacheStore do
     end
   end
 
+  it "restores a non-ASCII cache key even without a UTF-8 locale" do
+    with_workspace do |workspace|
+      cache_root = File.join(workspace, ".mini-ci/cache")
+      FileUtils.mkdir_p(File.join(workspace, "vendor/bundle"))
+      File.write(File.join(workspace, "vendor/bundle/gem.txt"), "cached")
+      store = described_class.new(root: cache_root, workspace: workspace)
+      store.save(resolved_key: "bundle-Déploiement-✓", paths: ["vendor/bundle"])
+      FileUtils.rm_rf(File.join(workspace, "vendor/bundle"))
+
+      result = nil
+      with_default_external_encoding("US-ASCII") do
+        expect { result = store.restore(resolved_key: "bundle-Déploiement-✓", restore_keys: []) }.not_to raise_error
+      end
+
+      expect(result).to be_exact_hit
+      expect(File.read(File.join(workspace, "vendor/bundle/gem.txt"))).to eq("cached")
+    end
+  end
+
   it "restores the newest matching fallback prefix" do
     with_workspace do |workspace|
       cache_root = File.join(workspace, ".mini-ci/cache")
@@ -70,4 +89,3 @@ RSpec.describe MiniCi::CacheStore do
     end
   end
 end
-

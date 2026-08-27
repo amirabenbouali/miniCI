@@ -223,7 +223,7 @@ module MiniCi
 
     def touch_restore(entry)
       metadata_path = File.join(entry.entry_directory, METADATA_FILE)
-      metadata = JSON.parse(File.read(metadata_path))
+      metadata = JSON.parse(File.read(metadata_path, encoding: Encoding::UTF_8))
       metadata["last_restored_at"] = @clock.call.iso8601(6)
       File.write(metadata_path, JSON.pretty_generate(metadata))
     rescue StandardError
@@ -300,7 +300,7 @@ module MiniCi
     end
 
     def entry_from_metadata(metadata_path)
-      metadata = JSON.parse(File.read(metadata_path))
+      metadata = JSON.parse(File.read(metadata_path, encoding: Encoding::UTF_8))
       entry_directory = File.dirname(metadata_path)
       CacheEntry.new(
         key: metadata.fetch("key"),

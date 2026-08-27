@@ -108,25 +108,25 @@ module MiniCi
 
     def all_records
       Dir.glob(File.join(@root, "run-*", "run.json")).filter_map do |path|
-        JSON.parse(File.read(path))
-      rescue JSON::ParserError, SystemCallError
+        JSON.parse(File.read(path, encoding: Encoding::UTF_8))
+      rescue JSON::ParserError, SystemCallError, EncodingError
         nil
       end.sort_by { |record| record["created_at"].to_s }.reverse
     end
 
     def corrupt_count
       Dir.glob(File.join(@root, "run-*", "run.json")).count do |path|
-        JSON.parse(File.read(path))
+        JSON.parse(File.read(path, encoding: Encoding::UTF_8))
         false
-      rescue JSON::ParserError, SystemCallError
+      rescue JSON::ParserError, SystemCallError, EncodingError
         true
       end
     end
 
     def load(run_id)
       validate_run_id!(run_id)
-      JSON.parse(File.read(record_path(run_id)))
-    rescue JSON::ParserError, SystemCallError => e
+      JSON.parse(File.read(record_path(run_id), encoding: Encoding::UTF_8))
+    rescue JSON::ParserError, SystemCallError, EncodingError => e
       raise FileNotFoundError, "Run record could not be read: #{e.message}"
     end
 

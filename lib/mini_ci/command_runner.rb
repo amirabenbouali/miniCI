@@ -66,7 +66,7 @@ module MiniCi
     def copy_stream(reader, target)
       Thread.new do
         loop do
-          target.write(reader.readpartial(4096))
+          target.write(reader.readpartial(4096).force_encoding(Encoding::UTF_8).scrub)
         end
       rescue EOFError
         reader.close

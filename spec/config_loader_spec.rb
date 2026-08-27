@@ -48,6 +48,24 @@ RSpec.describe MiniCi::ConfigLoader do
       FileUtils.remove_entry(directory)
     end
 
+    it "loads a pipeline name with non-ASCII characters even without a UTF-8 locale" do
+      path, directory = write_config(<<~YAML)
+        name: Déploiement ✓
+        steps:
+          - name: Step
+            run: echo hi
+      YAML
+
+      config = nil
+      with_default_external_encoding("US-ASCII") do
+        expect { config = loader_for(path).load }.not_to raise_error
+      end
+
+      expect(config.name).to eq("Déploiement ✓")
+    ensure
+      FileUtils.remove_entry(directory)
+    end
+
     it "creates steps in the correct order" do
       path, directory = write_config(<<~YAML)
         steps:

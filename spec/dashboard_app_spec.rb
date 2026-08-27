@@ -32,7 +32,10 @@ RSpec.describe MiniCi::Dashboard::App do
       root: File.join(directory, ".mini-ci", "runs"),
       workspace: directory,
       clock: -> { Time.utc(2026, 1, 2, 3, 4, 5) },
-      token_generator: -> { counter += 1; format("%06x", counter) }
+      token_generator: lambda {
+        counter += 1
+        format("%06x", counter)
+      }
     )
   end
 
@@ -128,6 +131,18 @@ RSpec.describe MiniCi::Dashboard::App do
     expect(last_response.body).to include("data-copy-log")
   end
 
+  it "renders non-ASCII output logs even without a UTF-8 locale" do
+    record = create_finished_run(status: "passed", pipeline_name: "Ruby Build")
+    repository.output_writer(record.fetch("run_id")).puts("Déploiement ✓ terminé")
+
+    with_default_external_encoding("US-ASCII") do
+      expect { get "/runs/#{record.fetch("run_id")}/output" }.not_to raise_error
+    end
+
+    expect(last_response).to be_ok
+    expect(last_response.body).to include("Déploiement ✓ terminé")
+  end
+
   it "escapes log output and pipeline names" do
     record = create_finished_run(status: "passed", pipeline_name: "<script>alert(1)</script>")
     repository.output_writer(record.fetch("run_id")).puts("<img src=x onerror=alert(1)>")
@@ -159,6 +174,21 @@ RSpec.describe MiniCi::Dashboard::App do
 
     get "/runs/#{record.fetch("run_id")}/artifacts/../secret.txt"
     expect(last_response.status).to eq(404)
+  end
+
+  it "serves non-ASCII artifact content as text even without a UTF-8 locale" do
+    artifacts = File.join(directory, "artifacts")
+    FileUtils.mkdir_p(artifacts)
+    File.write(File.join(artifacts, "report.txt"), "Déploiement ✓ terminé")
+    record = create_finished_run(status: "passed", pipeline_name: "Ruby Build", artifacts: artifacts)
+
+    with_default_external_encoding("US-ASCII") do
+      expect { get "/runs/#{record.fetch("run_id")}/artifacts/report.txt" }.not_to raise_error
+    end
+
+    expect(last_response).to be_ok
+    expect(last_response.content_type).to include("text/plain")
+    expect(last_response.body).to include("Déploiement ✓ terminé")
   end
 
   it "requires CSRF tokens for state-changing requests" do

@@ -8,12 +8,13 @@ module MiniCi
 
     def initialize
       @io = Tempfile.new("mini-ci-matrix-job")
+      @io.set_encoding(Encoding::UTF_8)
     end
 
     def string
       @io.flush
       @io.rewind
-      @io.read
+      @io.read.scrub
     end
 
     def close

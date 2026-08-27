@@ -875,11 +875,7 @@ module MiniCi
     end
 
     def format_timeout(timeout)
-      if timeout.is_a?(Integer)
-        "#{timeout}s"
-      else
-        "#{timeout}s"
-      end
+      "#{timeout}s"
     end
 
     def format_duration(seconds)

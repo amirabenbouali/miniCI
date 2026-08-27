@@ -9,7 +9,10 @@ RSpec.describe MiniCi::RunRepository do
       root: root,
       workspace: directory,
       clock: -> { Time.utc(2026, 1, 2, 3, 4, 5) },
-      token_generator: -> { counter += 1; format("%06x", counter) }
+      token_generator: lambda {
+        counter += 1
+        format("%06x", counter)
+      }
     )
   end
 
@@ -54,6 +57,22 @@ RSpec.describe MiniCi::RunRepository do
 
     expect(repo.list(status: "passed").map { |run| run["pipeline_name"] }).to eq(["Ruby Build"])
     expect(repo.list(pipeline: "docs").map { |run| run["pipeline_name"] }).to eq(["Docs Build"])
+  end
+
+  it "loads a run record with non-ASCII content even without a UTF-8 locale" do
+    repo = repository
+    record = repo.create(pipeline_file: "pipeline.yml")
+    run_id = record.fetch("run_id")
+    repo.mark_running(run_id, pipeline_name: "Déploiement ✓")
+    repo.finish(run_id, "overall_status" => "passed", "pipeline_status" => "passed", "jobs" => [])
+
+    loaded = nil
+    with_default_external_encoding("US-ASCII") do
+      expect { loaded = repo.load(run_id) }.not_to raise_error
+      expect { repo.all_records }.not_to raise_error
+    end
+
+    expect(loaded["pipeline_name"]).to eq("Déploiement ✓")
   end
 
   it "refuses unsafe run ids" do
