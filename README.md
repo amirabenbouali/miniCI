@@ -288,19 +288,7 @@ See [SECURITY.md](SECURITY.md). Mini CI runs shell commands and trusted local pl
 
 ## Release Readiness
 
-Release notes live in [docs/releases/v1.0.0.md](docs/releases/v1.0.0.md). The release checklist lives in [docs/release-checklist.md](docs/release-checklist.md).
-
-Suggested GitHub repository description:
-
-```text
-Lightweight local CI pipeline runner written in Ruby with matrix builds, caching, artifacts and plugins.
-```
-
-Suggested topics:
-
-```text
-ruby, ci, continuous-integration, developer-tools, automation, yaml, pipeline, cli, matrix-builds, testing, build-system
-```
+Release notes live in [docs/releases/v1.0.0.md](docs/releases/v1.0.0.md). The release checklist, including suggested repository metadata, lives in [docs/release-checklist.md](docs/release-checklist.md).
 
 ## Roadmap
 
@@ -313,6 +301,6 @@ ruby, ci, continuous-integration, developer-tools, automation, yaml, pipeline, c
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Licence
+## License
 
-Mini CI is released under the MIT Licence. See [LICENSE](LICENSE).
+Mini CI is released under the MIT License. See [LICENSE](LICENSE).
